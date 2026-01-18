@@ -165,7 +165,9 @@ class PathCompleter(Completer):
             label = self._format_label(entry)
 
             if not context.search_pattern:
-                scored_matches.append((label, 0.0))
+                # Smart prioritization: directories first, then common file types
+                priority_score = self._get_priority_score(entry)
+                scored_matches.append((label, priority_score))
                 if len(scored_matches) >= self._target_matches:
                     break
                 continue
@@ -174,7 +176,10 @@ class PathCompleter(Completer):
                 context.search_pattern, entry.rel, entry.rel_lower
             )
             if match_result.matched:
-                scored_matches.append((label, match_result.score))
+                # Combine fuzzy match score with smart priority
+                priority_boost = self._get_priority_score(entry) * 0.1
+                final_score = match_result.score + priority_boost
+                scored_matches.append((label, final_score))
                 if (
                     len(scored_matches) >= self._target_matches
                     and match_result.score > MAX_MATCHES
@@ -183,6 +188,33 @@ class PathCompleter(Completer):
 
         scored_matches.sort(key=lambda x: (-x[1], x[0]))
         return scored_matches
+
+    def _get_priority_score(self, entry: IndexEntry) -> float:
+        """Get priority score based on file type and other smart factors."""
+        base_score = 100.0
+        
+        # Directories get higher priority
+        if entry.is_dir:
+            base_score += 200.0
+        
+        # Common file types get priority boost
+        common_extensions = {
+            '.py', '.js', '.ts', '.html', '.css', '.json', '.md', '.txt',
+            '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.sh', '.bash'
+        }
+        
+        if not entry.is_dir:
+            ext = entry.name.lower().split('.')[-1] if '.' in entry.name else ''
+            if ext in common_extensions:
+                base_score += 50.0
+            elif ext:  # Any recognized extension
+                base_score += 20.0
+        
+        # Shorter names get slight priority (easier to type)
+        name_length_factor = max(0, 50 - len(entry.name)) * 0.5
+        base_score += name_length_factor
+        
+        return base_score
 
     def _collect_matches(self, text: str, cursor_pos: int) -> list[str]:
         before_cursor = text[:cursor_pos]

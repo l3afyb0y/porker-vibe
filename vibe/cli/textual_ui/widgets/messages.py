@@ -93,6 +93,12 @@ class StreamingMessageBase(Static):
             stream = self._ensure_stream()
             await stream.write(self._content)
 
+    async def display_content(self) -> None:
+        """Display content directly without streaming."""
+        if self._content and self._should_write_content():
+            markdown = self._get_markdown()
+            await markdown.update(self._content)
+
     async def stop_stream(self) -> None:
         if self._stream is None:
             return

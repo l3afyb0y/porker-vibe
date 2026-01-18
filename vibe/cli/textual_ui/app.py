@@ -102,7 +102,7 @@ class VibeApp(App):  # noqa: PLR0904
         loaded_messages: list[LLMMessage] | None = None,
         version_update_notifier: VersionUpdateGateway | None = None,
         update_cache_repository: UpdateCacheRepository | None = None,
-        current_version: str = CORE_VERSION,
+        current_version: str = "1.3.6",
         collaborative_integration: CollaborativeVibeIntegration | None = None,
         **kwargs: Any,
     ) -> None:
@@ -150,6 +150,10 @@ class VibeApp(App):  # noqa: PLR0904
         self._auto_scroll = True
         self._last_escape_time: float | None = None
         self._terminal_theme = capture_terminal_theme()
+        self._visible_message_range: tuple[int, int] = (0, 20)  # Virtual scrolling range
+        self._message_widgets: list[Widget] = []  # Track message widgets for virtualization
+        self._ui_update_batch: list[Callable[[], None]] = []  # Batch UI updates
+        self._batch_update_scheduled = False
 
     @property
     def config(self) -> VibeConfig:
@@ -180,6 +184,30 @@ class VibeApp(App):  # noqa: PLR0904
             )
             yield NoMarkupStatic(id="spacer")
             yield ContextProgress()
+
+    def _batch_ui_update(self, update_func: Callable[[], None]) -> None:
+        """Add UI update to batch for performance optimization."""
+        self._ui_update_batch.append(update_func)
+        if not self._batch_update_scheduled:
+            self._batch_update_scheduled = True
+            self.call_after_refresh(self._process_batch_updates)
+
+    def _process_batch_updates(self) -> None:
+        """Process all batched UI updates in a single refresh cycle."""
+        self._batch_update_scheduled = False
+        for update_func in self._ui_update_batch:
+            try:
+                update_func()
+            except Exception:
+                # Don't let one failed update break the whole batch
+                pass
+        self._ui_update_batch.clear()
+
+    def _update_visible_message_range(self) -> None:
+        """Update which messages should be visible based on scroll position."""
+        # This would be implemented with actual virtual scrolling logic
+        # For now, we'll keep a simple approach
+        pass
 
     async def on_mount(self) -> None:
         if self._terminal_theme:
@@ -488,6 +516,7 @@ class VibeApp(App):  # noqa: PLR0904
                 self.config,
                 mode=self._current_agent_mode,
                 enable_streaming=self.enable_streaming,
+                collaborative_integration=self._collaborative_integration,
             )
 
             if not self._current_agent_mode.auto_approve:
@@ -523,33 +552,50 @@ class VibeApp(App):  # noqa: PLR0904
 
         messages_area = self.query_one("#messages")
         tool_call_map: dict[str, str] = {}
+        widgets_to_mount: list[Widget] = []
+        assistant_widgets: list[AssistantMessage] = []
 
-        with self.batch_update():
-            for msg in self._loaded_messages:
-                if msg.role == Role.system:
-                    continue
+        # We don't use batch_update() here anymore. 
+        # Mounting everything at once is much faster and avoids potential deadlocks.
+        for msg in self._loaded_messages:
+            if msg.role == Role.system:
+                continue
 
-                match msg.role:
-                    case Role.user:
-                        if msg.content:
-                            await messages_area.mount(UserMessage(msg.content))
+            match msg.role:
+                case Role.user:
+                    if msg.content:
+                        widgets_to_mount.append(UserMessage(msg.content))
 
-                    case Role.assistant:
-                        await self._mount_history_assistant_message(
-                            msg, messages_area, tool_call_map
+                case Role.assistant:
+                    if msg.content:
+                        widget = AssistantMessage(msg.content)
+                        widgets_to_mount.append(widget)
+                        assistant_widgets.append(widget)
+
+                    if msg.tool_calls:
+                        for tool_call in msg.tool_calls:
+                            tool_name = tool_call.function.name or "unknown"
+                            if tool_call.id:
+                                tool_call_map[tool_call.id] = tool_name
+                            widgets_to_mount.append(ToolCallMessage(tool_name=tool_name))
+
+                case Role.tool:
+                    tool_name = msg.name or tool_call_map.get(
+                        msg.tool_call_id or "", "tool"
+                    )
+                    widgets_to_mount.append(
+                        ToolResultMessage(
+                            tool_name=tool_name,
+                            content=msg.content,
+                            collapsed=self._tools_collapsed,
                         )
-
-                    case Role.tool:
-                        tool_name = msg.name or tool_call_map.get(
-                            msg.tool_call_id or "", "tool"
-                        )
-                        await messages_area.mount(
-                            ToolResultMessage(
-                                tool_name=tool_name,
-                                content=msg.content,
-                                collapsed=self._tools_collapsed,
-                            )
-                        )
+                    )
+        
+        if widgets_to_mount:
+            await messages_area.mount(*widgets_to_mount)
+            # After mounting, we can safely update the markdown content
+            for assistant_widget in assistant_widgets:
+                await assistant_widget.display_content()
 
     async def _mount_history_assistant_message(
         self, msg: LLMMessage, messages_area: Widget, tool_call_map: dict[str, str]
@@ -557,8 +603,7 @@ class VibeApp(App):  # noqa: PLR0904
         if msg.content:
             widget = AssistantMessage(msg.content)
             await messages_area.mount(widget)
-            await widget.write_initial_content()
-            await widget.stop_stream()
+            await widget.display_content()
 
         if not msg.tool_calls:
             return
@@ -1223,6 +1268,7 @@ class VibeApp(App):  # noqa: PLR0904
         if was_at_bottom:
             self._auto_scroll = True
 
+        # Use batching for better performance
         if isinstance(widget, ReasoningMessage):
             result = await self._handle_streaming_widget(
                 widget,
@@ -1247,7 +1293,12 @@ class VibeApp(App):  # noqa: PLR0904
             self._current_streaming_reasoning = None
         else:
             await self._finalize_current_streaming_message()
-            await messages_area.mount(widget)
+            
+            # Use batched UI update for better performance
+            def mount_widget():
+                messages_area.mount(widget)
+            
+            self._batch_ui_update(mount_widget)
 
             is_tool_message = isinstance(widget, (ToolCallMessage, ToolResultMessage))
 
@@ -1379,6 +1430,7 @@ def run_textual_ui(
         loaded_messages=loaded_messages,
         version_update_notifier=update_notifier,
         update_cache_repository=update_cache_repository,
+        collaborative_integration=collaborative_integration,
     )
     session_id = app.run()
     _print_session_resume_message(session_id)

@@ -97,12 +97,16 @@ class Agent:
         max_price: float | None = None,
         backend: BackendLike | None = None,
         enable_streaming: bool = False,
+        collaborative_integration: CollaborativeVibeIntegration | None = None,
+        todo_tool: object | None = None,  # Type hint will be added after circular import resolution
     ) -> None:
         """Initialize the agent with configuration and mode."""
         self.config = config
         self._mode = mode
         self._max_turns = max_turns
         self._max_price = max_price
+        self.collaborative_integration = collaborative_integration
+        self._todo_tool = todo_tool
 
         self.tool_manager = ToolManager(lambda: self.config)
         self.skill_manager = SkillManager(lambda: self.config)
@@ -198,6 +202,17 @@ class Agent:
                 )
 
         self.middleware_pipeline.add(PlanModeMiddleware(lambda: self._mode))
+        
+        # Add collaborative routing middleware if collaborative integration is available
+        if self.collaborative_integration:
+            from vibe.core.middleware import CollaborativeRoutingMiddleware
+            self.middleware_pipeline.add(CollaborativeRoutingMiddleware(self.collaborative_integration))
+        
+        # Add auto-tracking middleware if todo tool is available
+        if self._todo_tool:
+            from vibe.core.tools.builtins.todo import AutoTaskTrackingMiddleware
+            auto_tracking_middleware = self._todo_tool.create_auto_tracking_middleware()
+            self.middleware_pipeline.add(auto_tracking_middleware)
 
     async def _handle_middleware_result(
         self, result: MiddlewareResult

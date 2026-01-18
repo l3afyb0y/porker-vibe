@@ -9,6 +9,9 @@ from vibe.core.modes import AgentMode
 from vibe.core.utils import VIBE_WARNING_TAG
 
 if TYPE_CHECKING:
+    from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
+
+if TYPE_CHECKING:
     from vibe.core.config import VibeConfig
     from vibe.core.types import AgentStats, LLMMessage
 
@@ -172,6 +175,104 @@ class PlanModeMiddleware:
 
     def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
         pass
+
+
+class CollaborativeRoutingMiddleware:
+    """
+    Middleware that automatically routes tasks to the collaborative framework.
+    
+    This middleware ensures that Devstral consistently offloads appropriate tasks
+    to local models by integrating the CollaborativeRouter into the main agent flow.
+    """
+    
+    def __init__(self, collaborative_integration: CollaborativeVibeIntegration):
+        self.collaborative_integration = collaborative_integration
+        self.current_routing_task_id: str | None = None
+        self.current_routing_result: dict[str, Any] | None = None
+    
+    async def before_turn(self, context: ConversationContext) -> MiddlewareResult:
+        """
+        Check if the current prompt should use collaborative routing.
+        If so, route it through the CollaborativeRouter and inject the result.
+        """
+        if not self.collaborative_integration or not self.collaborative_integration.is_collaborative_mode_enabled():
+            return MiddlewareResult()
+        
+        # Get the latest user message
+        user_messages = [msg for msg in context.messages if msg.role == "user"]
+        if not user_messages:
+            return MiddlewareResult()
+        
+        latest_user_message = user_messages[-1].content
+        
+        # Check if this prompt should use collaborative routing
+        if not self.collaborative_integration.should_use_collaborative_routing(latest_user_message):
+            return MiddlewareResult()
+        
+        # Route the prompt collaboratively with error handling
+        try:
+            routing_result = self.collaborative_integration.route_prompt_collaboratively(
+                prompt=latest_user_message,
+                messages=context.messages
+            )
+        except Exception as e:
+            # Handle any unexpected errors in collaborative routing
+            error_message = f"<{VIBE_WARNING_TAG}>Collaborative routing error: {str(e)}. Falling back to Devstral.</{VIBE_WARNING_TAG}>"
+            return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=error_message)
+        
+        # Store the routing result for potential follow-up
+        self.current_routing_task_id = routing_result.get("routing_task_id")
+        self.current_routing_result = routing_result
+        
+        if routing_result.get("use_collaborative", False):
+            if routing_result.get("status") == "system_busy":
+                # System is busy, suggest retry with exponential backoff
+                retry_after = routing_result.get("retry_after", 2.0)
+                message = f"<{VIBE_WARNING_TAG}>Collaborative system is busy. Please wait {retry_after:.1f} seconds and try again.</{VIBE_WARNING_TAG}>"
+                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=message)
+            
+            elif routing_result.get("status") == "failed":
+                # Routing failed, fall back to Devstral with detailed error info
+                error_msg = routing_result.get("message", "Collaborative routing failed")
+                error_type = routing_result.get("error_type", "unknown")
+                
+                # Provide more detailed error information for debugging
+                fallback_message = f"<{VIBE_WARNING_TAG}>Collaborative routing failed ({error_type}): {error_msg}. Falling back to Devstral.</{VIBE_WARNING_TAG}>"
+                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=fallback_message)
+            
+            elif routing_result.get("status") == "partial_success":
+                # Handle partial success cases
+                partial_result = routing_result.get("partial_result", "")
+                model_used = routing_result.get("model_used", "unknown")
+                
+                partial_message = f"<{VIBE_WARNING_TAG}>Partial result from {model_used} via collaborative routing</{VIBE_WARNING_TAG}>\n\n{partial_result}\n\nContinuing with Devstral..."
+                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=partial_message)
+            
+            else:
+                # Successful collaborative routing
+                result_message = routing_result.get("result", "Task completed via collaborative routing")
+                model_used = routing_result.get("model_used", "unknown")
+                
+                # Create a system message showing the collaborative result
+                collaborative_message = f"<{VIBE_WARNING_TAG}>Task completed by {model_used} via collaborative routing</{VIBE_WARNING_TAG}>\n\n{result_message}"
+                
+                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=collaborative_message)
+        
+        return MiddlewareResult()
+    
+    async def after_turn(self, context: ConversationContext) -> MiddlewareResult:
+        """
+        Clean up after collaborative routing if needed.
+        """
+        # Reset routing state after each turn
+        self.current_routing_task_id = None
+        self.current_routing_result = None
+        return MiddlewareResult()
+    
+    def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
+        """Reset middleware state."""
+        self.current_routing_task_id = None
+        self.current_routing_result = None
 
 
 class MiddlewarePipeline:

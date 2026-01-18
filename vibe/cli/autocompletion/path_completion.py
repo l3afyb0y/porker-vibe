@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import atexit
+from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock
+from typing import Any
 
 from textual import events
 
@@ -10,10 +12,14 @@ from vibe.cli.autocompletion.base import CompletionResult, CompletionView
 from vibe.core.autocompletion.completers import PathCompleter
 
 MAX_SUGGESTIONS_COUNT = 10
+MAX_THREAD_POOL_SIZE = 4  # Increased from 1 for better parallelism
+MAX_CACHE_SIZE = 100  # Cache size for common path completions
 
 
 class PathCompletionController:
-    _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="path-completion")
+    _executor = ThreadPoolExecutor(max_workers=MAX_THREAD_POOL_SIZE, thread_name_prefix="path-completion")
+    _cache: OrderedDict[tuple[str, int], list[tuple[str, str]]] = OrderedDict()
+    _cache_lock = Lock()
 
     def __init__(self, completer: PathCompleter, view: CompletionView) -> None:
         self._completer = completer
@@ -55,12 +61,40 @@ class PathCompletionController:
             self._selected_index = 0
             self._view.clear_completion_suggestions()
 
+    @classmethod
+    def _get_from_cache(cls, query: tuple[str, int]) -> list[tuple[str, str]] | None:
+        """Get cached completion results for the given query."""
+        with cls._cache_lock:
+            return cls._cache.get(query)
+
+    @classmethod
+    def _add_to_cache(cls, query: tuple[str, int], suggestions: list[tuple[str, str]]) -> None:
+        """Add completion results to cache, maintaining size limit."""
+        with cls._cache_lock:
+            cls._cache[query] = suggestions
+            # Maintain cache size limit
+            if len(cls._cache) > MAX_CACHE_SIZE:
+                cls._cache.popitem(last=False)
+
+    @classmethod
+    def _clear_cache(cls) -> None:
+        """Clear the completion cache."""
+        with cls._cache_lock:
+            cls._cache.clear()
+
     def on_text_changed(self, text: str, cursor_index: int) -> None:
         if not self.can_handle(text, cursor_index):
             self.reset()
             return
 
         query = (text, cursor_index)
+        
+        # Check cache first for immediate results
+        cached_suggestions = self._get_from_cache(query)
+        if cached_suggestions is not None:
+            self._update_suggestions(cached_suggestions)
+            return
+
         with self._query_lock:
             if query == self._last_query:
                 return
@@ -98,6 +132,8 @@ class PathCompletionController:
             suggestions = future.result()
             with self._query_lock:
                 if query == self._last_query:
+                    # Cache the results for future use
+                    self._add_to_cache(query, suggestions)
                     self._update_suggestions(suggestions)
         except Exception:
             with self._query_lock:
