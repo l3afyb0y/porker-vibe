@@ -1,7 +1,13 @@
 # Mistral Vibe Documentation
 
-Welcome to the Mistral Vibe documentation! For basic setup, see the [main README](https://github.com/mistral-vibe/mistral-vibe#readme).
+Welcome to the detailed documentation for Mistral Vibe.
 
-## Available Documentation
+## Contents
 
-- **[ACP Setup](acp-setup.md)** - Setup instructions for using Mistral Vibe with various editors and IDEs that support the Agent Client Protocol.
+- **[ACP Setup](acp-setup.md)**: Comprehensive guide for setting up the Agent Client Protocol (ACP) with various editors and IDEs.
+- **[Main README](../README.md)**: General installation, configuration, and usage instructions.
+- **[Collaborative Framework](../COLLABORATIVE_FRAMEWORK.md)**: Deep dive into the dual-model architecture and collaborative features.
+
+## Getting Help
+
+If you cannot find what you are looking for here, please refer to the main repository issues or the collaborative framework overview.

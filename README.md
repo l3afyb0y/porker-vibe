@@ -1,329 +1,326 @@
-# Mistral Vibe
+# Vibe Collaborative Framework
 
-[![PyPI Version](https://img.shields.io/pypi/v/mistral-vibe)](https://pypi.org/project/mistral-vibe)
-[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/release/python-3120/)
-[![CI Status](https://github.com/mistralai/mistral-vibe/actions/workflows/ci.yml/badge.svg)](https://github.com/mistralai/mistral-vibe/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/mistralai/mistral-vibe)](https://github.com/mistralai/mistral-vibe/blob/main/LICENSE)
-
-```
-██████████████████░░
-██████████████████░░
-████  ██████  ████░░
-████    ██    ████░░
-████          ████░░
-████  ██  ██  ████░░
-██      ██      ██░░
-██████████████████░░
-██████████████████░░
-```
-
-**Mistral's open-source CLI coding assistant.**
-
-Mistral Vibe is a command-line coding assistant powered by Mistral's models. It provides a conversational interface to your codebase, allowing you to use natural language to explore, modify, and interact with your projects through a powerful set of tools.
-
-> [!WARNING]
-> Mistral Vibe works on Windows, but we officially support and target UNIX environments.
-
-### One-line install (recommended)
-
-**Linux and macOS**
-
-```bash
-curl -LsSf https://mistral.ai/vibe/install.sh | bash
-```
-
-**Windows**
-
-First, install uv
-```bash
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Then, use uv command below.
-
-### Using uv
-
-```bash
-uv tool install mistral-vibe
-```
-
-### Using pip
-
-```bash
-pip install mistral-vibe
-```
+A forked version of Mistral Vibe that integrates Devstral-2 with a local model via Ollama for collaborative coding.
 
 ## Features
 
-- **Interactive Chat**: A conversational AI agent that understands your requests and breaks down complex tasks.
-- **Powerful Toolset**: A suite of tools for file manipulation, code searching, version control, and command execution, right from the chat prompt.
-  - Read, write, and patch files (`read_file`, `write_file`, `search_replace`).
-  - Execute shell commands in a stateful terminal (`bash`).
-  - Recursively search code with `grep` (with `ripgrep` support).
-  - Manage a `todo` list to track the agent's work.
-- **Project-Aware Context**: Vibe automatically scans your project's file structure and Git status to provide relevant context to the agent, improving its understanding of your codebase.
-- **Advanced CLI Experience**: Built with modern libraries for a smooth and efficient workflow.
-  - Autocompletion for slash commands (`/`) and file paths (`@`).
-  - Persistent command history.
-  - Beautiful Themes.
-- **Highly Configurable**: Customize models, providers, tool permissions, and UI preferences through a simple `config.toml` file.
-- **Safety First**: Features tool execution approval.
+- **Fully Local Mode**: Run entirely on your PC without Mistral API (set VIBE_PLANNING_MODEL)
+- **Hybrid Mode**: Devstral for planning, local models for implementation (default)
+- **Multi-Model Collaboration**: Route tasks to specialized models automatically
+- **Automatic Ollama Management**: Vibe automatically starts Ollama if needed and stops it on exit
+- **Fallback Behavior**: Gracefully falls back to standard Vibe when Ollama isn't available
+
+## Operating Modes
+
+### Fully Local Mode (No Mistral API)
+```bash
+export VIBE_PLANNING_MODEL="qwen2.5-coder:32b"  # Planning
+export VIBE_CODE_MODEL="deepseek-coder-v2:latest"  # Code
+export VIBE_REVIEW_MODEL="qwq:latest"  # Review
+export VIBE_DOCS_MODEL="llama3.2:latest"  # Docs
+```
+All work happens locally via Ollama. No internet or API key required.
+
+### Hybrid Mode (Recommended)
+```bash
+# Don't set VIBE_PLANNING_MODEL
+export VIBE_CODE_MODEL="deepseek-coder-v2:latest"
+export VIBE_REVIEW_MODEL="qwq:latest"
+export VIBE_DOCS_MODEL="llama3.2:latest"
+```
+Devstral handles planning (via Mistral API), local models handle implementation.
+
+### Single Model Mode
+```bash
+export VIBE_LOCAL_MODEL="deepseek-coder-v2:latest"
+```
+One local model handles all implementation tasks, Devstral handles planning.
 
 ## Quick Start
 
-1. Navigate to your project's root directory:
-
+1. **Install Ollama** and pull specialized models:
    ```bash
-   cd /path/to/your/project
+   # Install Ollama (https://ollama.ai)
+   curl -fsSL https://ollama.ai/install.sh | sh
+
+   # For fully local mode (no Mistral API)
+   ollama pull qwen2.5-coder:32b          # For planning
+   ollama pull deepseek-coder-v2:latest   # For code
+   ollama pull qwq:latest                  # For review
+   ollama pull llama3.2:latest             # For docs
+
+   # OR for hybrid mode (just pull implementation models)
+   ollama pull deepseek-coder-v2:latest   # For code
+   ollama pull qwq:latest                  # For review
+   ollama pull llama3.2:latest             # For docs
    ```
 
-2. Run Vibe:
+2. **Set environment variables**:
+   ```bash
+   # Fully local mode (no Mistral API required)
+   export VIBE_PLANNING_MODEL="qwen2.5-coder:32b"  # For planning/coordination
+   export VIBE_CODE_MODEL="deepseek-coder-v2:latest"
+   export VIBE_REVIEW_MODEL="qwq:latest"
+   export VIBE_DOCS_MODEL="llama3.2:latest"
 
+   # OR hybrid mode (Devstral for planning, local for implementation)
+   # Don't set VIBE_PLANNING_MODEL, only set implementation models:
+   export VIBE_CODE_MODEL="deepseek-coder-v2:latest"
+   export VIBE_REVIEW_MODEL="qwq:latest"
+   export VIBE_DOCS_MODEL="llama3.2:latest"
+
+   # OR single model mode
+   export VIBE_LOCAL_MODEL="deepseek-coder-v2:latest"
+   ```
+
+3. **Run Vibe** (Ollama starts automatically):
    ```bash
    vibe
    ```
 
-3. If this is your first time running Vibe, it will:
+   You'll see output indicating Ollama started successfully and collaborative mode is enabled.
 
-   - Create a default configuration file at `~/.vibe/config.toml`
-   - Prompt you to enter your API key if it's not already configured
-   - Save your API key to `~/.vibe/.env` for future use
+   **Note**: If Ollama is already running (e.g., as a systemd service), Vibe will detect and use it without starting a new instance. When you exit Vibe, it only stops Ollama if Vibe started it.
 
-4. Start interacting with the agent!
+## Architecture
 
-   ```
-   > Can you find all instances of the word "TODO" in the project?
+### Model Roles
 
-   🤖 The user wants to find all instances of "TODO". The `grep` tool is perfect for this. I will use it to search the current directory.
+| Model | Role | Responsibilities | Required API |
+|-------|------|------------------|--------------|
+| **Planning Model** | Coordinator | Project planning, architecture design, task delegation | Mistral API (default) or Local (if VIBE_PLANNING_MODEL set) |
+| **CODE Model** | Implementer | Code writing, refactoring, tests | Local (Ollama) |
+| **REVIEW Model** | Reviewer | Code review, security analysis, quality assessment | Local (Ollama) |
+| **DOCS Model** | Documenter | Documentation, .gitignore, project organization | Local (Ollama) |
 
-   > grep(pattern="TODO", path=".")
+### Task Distribution
 
-   ... (grep tool output) ...
+Tasks are automatically routed to specialized models:
 
-   🤖 I found the following "TODO" comments in your project.
-   ```
+- **Coordinator (Devstral-2)**:
+  - Planning and architecture
+  - Task coordination between models
+  - Strategy and decision-making
+  - Answering architecture questions
 
-## Usage
+- **CODE Model** (e.g., deepseek-coder-v2):
+  - Code implementation
+  - Refactoring and optimization
+  - Writing tests
 
-### Interactive Mode
+- **REVIEW Model** (e.g., qwq):
+  - Code review and analysis
+  - Security vulnerability detection
+  - Best practices verification
 
-Simply run `vibe` to enter the interactive chat loop.
+- **DOCS Model** (e.g., llama3.2):
+  - Documentation (README, docstrings)
+  - .gitignore maintenance
+  - Project folder organization
+  - Git commit messages
 
-- **Multi-line Input**: Press `Ctrl+J` or `Shift+Enter` for select terminals to insert a newline.
-- **File Paths**: Reference files in your prompt using the `@` symbol for smart autocompletion (e.g., `> Read the file @src/agent.py`).
-- **Shell Commands**: Prefix any command with `!` to execute it directly in your shell, bypassing the agent (e.g., `> !ls -l`).
+## Environment Variables
 
-You can start Vibe with a prompt with the following command:
+### Single Model Mode
 
-```bash
-vibe "Refactor the main function in cli/main.py to be more modular."
-```
+| Variable | Description | Default |
+|----------|-------------|---------|
+| VIBE_LOCAL_MODEL | Name of the Ollama model for all tasks | None (disables collaborative mode) |
+| VIBE_OLLAMA_ENDPOINT | Custom Ollama API endpoint | http://localhost:11434 |
 
-**Note**: The `--auto-approve` flag automatically approves all tool executions without prompting. In interactive mode, you can also toggle auto-approve on/off using `Shift+Tab`.
+### Planning Model (Optional - for Fully Local Mode)
 
-### Programmatic Mode
+| Variable | Purpose | Suggested Model | Default |
+|----------|---------|-----------------|---------|
+| VIBE_PLANNING_MODEL | Planning and coordination (replaces Devstral) | qwen2.5-coder:32b, deepseek-r1:latest | None (uses Devstral via Mistral API) |
 
-You can run Vibe non-interactively by piping input or using the `--prompt` flag. This is useful for scripting.
+**Fully Local Mode:** Set VIBE_PLANNING_MODEL to run Vibe entirely locally without the Mistral API.
 
-```bash
-vibe --prompt "Refactor the main function in cli/main.py to be more modular."
-```
+### Implementation Models (for Collaborative Mode)
 
-by default it will use `auto-approve` mode.
+Use specialized models for different task types:
 
-### Slash Commands
+| Variable | Purpose | Suggested Model | Default |
+|----------|---------|-----------------|---------|
+| VIBE_CODE_MODEL | Code writing, refactoring, tests | deepseek-coder-v2:latest | Falls back to VIBE_LOCAL_MODEL |
+| VIBE_REVIEW_MODEL | Code review and quality analysis | qwq:latest | Falls back to VIBE_LOCAL_MODEL |
+| VIBE_DOCS_MODEL | Documentation, git, cleanup | llama3.2:latest | Falls back to VIBE_LOCAL_MODEL |
 
-Use slash commands for meta-actions and configuration changes during a session.
+**Note:** Ollama loads models on-demand, so you can have multiple models configured without loading them all at once.
 
-## Configuration
+## Usage Examples
 
-Vibe is configured via a `config.toml` file. It looks for this file first in `./.vibe/config.toml` and then falls back to `~/.vibe/config.toml`.
-
-### API Key Configuration
-
-Vibe supports multiple ways to configure your API keys:
-
-1. **Interactive Setup (Recommended for first-time users)**: When you run Vibe for the first time or if your API key is missing, Vibe will prompt you to enter it. The key will be securely saved to `~/.vibe/.env` for future sessions.
-
-2. **Environment Variables**: Set your API key as an environment variable:
-
-   ```bash
-   export MISTRAL_API_KEY="your_mistral_api_key"
-   ```
-
-3. **`.env` File**: Create a `.env` file in `~/.vibe/` and add your API keys:
-
-   ```bash
-   MISTRAL_API_KEY=your_mistral_api_key
-   ```
-
-   Vibe automatically loads API keys from `~/.vibe/.env` on startup. Environment variables take precedence over the `.env` file if both are set.
-
-**Note**: The `.env` file is specifically for API keys and other provider credentials. General Vibe configuration should be done in `config.toml`.
-
-### Custom System Prompts
-
-You can create custom system prompts to replace the default one (`prompts/cli.md`). Create a markdown file in the `~/.vibe/prompts/` directory with your custom prompt content.
-
-To use a custom system prompt, set the `system_prompt_id` in your configuration to match the filename (without the `.md` extension):
-
-```toml
-# Use a custom system prompt
-system_prompt_id = "my_custom_prompt"
-```
-
-This will load the prompt from `~/.vibe/prompts/my_custom_prompt.md`.
-
-### Custom Agent Configurations
-
-You can create custom agent configurations for specific use cases (e.g., red-teaming, specialized tasks) by adding agent-specific TOML files in the `~/.vibe/agents/` directory.
-
-To use a custom agent, run Vibe with the `--agent` flag:
+### Basic Usage (Auto-Detection)
 
 ```bash
-vibe --agent my_custom_agent
+# Set your local model
+export VIBE_LOCAL_MODEL="deepseek-coder-v2:latest"
+
+# Run Vibe - collaborative mode auto-enables
+vibe
 ```
 
-Vibe will look for a file named `my_custom_agent.toml` in the agents directory and apply its configuration.
-
-Example custom agent configuration (`~/.vibe/agents/redteam.toml`):
-
-```toml
-# Custom agent configuration for red-teaming
-active_model = "devstral-2"
-system_prompt_id = "redteam"
-
-# Disable some tools for this agent
-disabled_tools = ["search_replace", "write_file"]
-
-# Override tool permissions for this agent
-[tools.bash]
-permission = "always"
-
-[tools.read_file]
-permission = "always"
-```
-
-Note: this implies that you have setup a redteam prompt names `~/.vibe/prompts/redteam.md`
-
-### MCP Server Configuration
-
-You can configure MCP (Model Context Protocol) servers to extend Vibe's capabilities. Add MCP server configurations under the `mcp_servers` section:
-
-```toml
-# Example MCP server configurations
-[[mcp_servers]]
-name = "my_http_server"
-transport = "http"
-url = "http://localhost:8000"
-headers = { "Authorization" = "Bearer my_token" }
-api_key_env = "MY_API_KEY_ENV_VAR"
-api_key_header = "Authorization"
-api_key_format = "Bearer {token}"
-
-[[mcp_servers]]
-name = "my_streamable_server"
-transport = "streamable-http"
-url = "http://localhost:8001"
-headers = { "X-API-Key" = "my_api_key" }
-
-[[mcp_servers]]
-name = "fetch_server"
-transport = "stdio"
-command = "uvx"
-args = ["mcp-server-fetch"]
-```
-
-Supported transports:
-
-- `http`: Standard HTTP transport
-- `streamable-http`: HTTP transport with streaming support
-- `stdio`: Standard input/output transport (for local processes)
-
-Key fields:
-
-- `name`: A short alias for the server (used in tool names)
-- `transport`: The transport type
-- `url`: Base URL for HTTP transports
-- `headers`: Additional HTTP headers
-- `api_key_env`: Environment variable containing the API key
-- `command`: Command to run for stdio transport
-- `args`: Additional arguments for stdio transport
-
-MCP tools are named using the pattern `{server_name}_{tool_name}` and can be configured with permissions like built-in tools:
-
-```toml
-# Configure permissions for specific MCP tools
-[tools.fetch_server_get]
-permission = "always"
-
-[tools.my_http_server_query]
-permission = "ask"
-```
-
-### Enable/disable tools with patterns
-
-You can control which tools are active using `enabled_tools` and `disabled_tools`.
-These fields support exact names, glob patterns, and regular expressions.
-
-Examples:
-
-```toml
-# Only enable tools that start with "serena_" (glob)
-enabled_tools = ["serena_*"]
-
-# Regex (prefix with re:) — matches full tool name (case-insensitive)
-enabled_tools = ["re:^serena_.*$"]
-
-# Heuristic regex support (patterns like `serena.*` are treated as regex)
-enabled_tools = ["serena.*"]
-
-# Disable a group with glob; everything else stays enabled
-disabled_tools = ["mcp_*", "grep"]
-```
-
-Notes:
-
-- MCP tool names use underscores, e.g., `serena_list` not `serena.list`.
-- Regex patterns are matched against the full tool name using fullmatch.
-
-### Custom Vibe Home Directory
-
-By default, Vibe stores its configuration in `~/.vibe/`. You can override this by setting the `VIBE_HOME` environment variable:
+### Manual Collaborative Mode
 
 ```bash
-export VIBE_HOME="/path/to/custom/vibe/home"
+# Force collaborative mode (even without env var)
+vibe --collaborative
 ```
 
-This affects where Vibe looks for:
+### Multi-Model Setup (Recommended)
 
-- `config.toml` - Main configuration
-- `.env` - API keys
-- `agents/` - Custom agent configurations
-- `prompts/` - Custom system prompts
-- `tools/` - Custom tools
-- `logs/` - Session logsRetryTo run code, enable code execution and file creation in Settings > Capabilities.
+```bash
+# Set up specialized models for different tasks
+export VIBE_CODE_MODEL="deepseek-coder-v2:latest"     # For code implementation
+export VIBE_REVIEW_MODEL="qwq:latest"                  # For code review
+export VIBE_DOCS_MODEL="llama3.2:latest"               # For documentation
 
-## Editors/IDEs
+# Pull the models (one-time setup)
+ollama pull deepseek-coder-v2:latest
+ollama pull qwq:latest
+ollama pull llama3.2:latest
 
-Mistral Vibe can be used in text editors and IDEs that support [Agent Client Protocol](https://agentclientprotocol.com/overview/clients). See the [ACP Setup documentation](docs/acp-setup.md) for setup instructions for various editors and IDEs.
+# Run Vibe - models auto-route by task type
+vibe
+```
 
-## Resources
+### Single Model Mode
 
-- [CHANGELOG](CHANGELOG.md) - See what's new in each version
-- [CONTRIBUTING](CONTRIBUTING.md) - Guidelines for feedback and bug reports
+```bash
+# Use one model for everything
+export VIBE_LOCAL_MODEL="deepseek-coder-v2:latest"
+vibe
+
+# Or use different single models
+export VIBE_LOCAL_MODEL="codellama:latest"
+vibe
+```
+
+### Custom Ollama Endpoint
+
+```bash
+# Remote Ollama server
+export VIBE_OLLAMA_ENDPOINT="http://192.168.1.100:11434"
+export VIBE_LOCAL_MODEL="deepseek-coder-v2:latest"
+vibe
+```
+
+## Workflow
+
+1. **Devstral-2 analyzes** requirements and creates a development plan
+2. **Tasks are distributed** to the local model for implementation
+3. **Local model writes** code, documentation, and maintains the repo
+4. **Devstral-2 reviews** and provides feedback
+5. **Iterative refinement** until completion
+
+## Fallback Behavior
+
+When Ollama isn't running or VIBE_LOCAL_MODEL isn't set, Vibe continues to work normally using Devstral-2 for everything.
+
+## Setup Requirements
+
+- **Python 3.12+**
+- **Ollama** running locally (or accessible endpoint)
+- **Mistral API key** - Only required if NOT using VIBE_PLANNING_MODEL (fully local mode)
+- **Local models** pulled in Ollama
+
+## Installation
+
+### Linux / macOS
+
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/vibe.git
+cd vibe
+
+# Install in development mode
+pip install -e .
+
+# Or install normally
+pip install .
+```
+
+### Using uv (Recommended)
+
+```bash
+# Install uv (if not installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Vibe
+cd /path/to/vibe
+uv venv
+uv pip install -e .
+
+# Run with uv
+uv run vibe
+```
+
+## Troubleshooting
+
+### "Ollama is not running" or "Failed to start Ollama"
+
+Vibe tries to start Ollama automatically. If it fails:
+
+```bash
+# Check if Ollama is installed
+which ollama
+
+# If not installed, install it:
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# You can also run Ollama as a systemd service (optional)
+sudo systemctl start ollama
+sudo systemctl enable ollama  # Auto-start on boot
+```
+
+If Ollama is running as a systemd service, Vibe will detect it and won't start a duplicate instance.
+
+### "Model not found"
+```bash
+# Pull the model first
+ollama pull deepseek-coder-v2:latest
+
+# Verify it's available
+ollama list
+```
+
+### How does Ollama handle multiple models?
+
+Ollama loads models **on-demand** when you make a request. You don't need to worry about memory - only the currently-used model is loaded. When you switch tasks (e.g., from code to review), Ollama automatically swaps models.
+
+### Do I need a Mistral API key?
+
+- **Fully Local Mode** (VIBE_PLANNING_MODEL set): No API key needed
+- **Hybrid/Single Model Mode** (default): Yes, you need a Mistral API key for Devstral
+
+To set your API key:
+```bash
+export MISTRAL_API_KEY="your-api-key"
+# Or add to ~/.vibe/.env
+```
+
+Get a key at: https://console.mistral.ai/
+
+### Connection Timeout
+```bash
+# Check if Ollama is listening
+curl http://localhost:11434/api/tags
+```
+
+### Creating Custom Models
+
+You can create custom models with `ollama create`:
+
+```bash
+# Create a custom model with a Modelfile
+ollama create gkm-4.7 -f ./Modelfile
+
+# Then use it
+export VIBE_REVIEW_MODEL="gkm-4.7"
+```
+
+See [Ollama Modelfile documentation](https://github.com/ollama/ollama/blob/main/docs/modelfile.md) for more info.
 
 ## License
 
-Copyright 2025 Mistral AI
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the [LICENSE](LICENSE) file for the full license text.
+See the original Vibe repository for license information.

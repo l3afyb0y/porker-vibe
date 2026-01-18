@@ -67,6 +67,7 @@ from vibe.core.utils import (
     is_dangerous_directory,
     logger,
 )
+from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
 
 
 class BottomApp(StrEnum):
@@ -102,6 +103,7 @@ class VibeApp(App):  # noqa: PLR0904
         version_update_notifier: VersionUpdateGateway | None = None,
         update_cache_repository: UpdateCacheRepository | None = None,
         current_version: str = CORE_VERSION,
+        collaborative_integration: CollaborativeVibeIntegration | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -124,6 +126,7 @@ class VibeApp(App):  # noqa: PLR0904
         self._mode_indicator: ModeIndicator | None = None
         self._context_progress: ContextProgress | None = None
         self._current_bottom_app: BottomApp = BottomApp.Input
+        self._collaborative_integration = collaborative_integration
 
         self.history_file = HISTORY_FILE.path
 
@@ -1364,6 +1367,7 @@ def run_textual_ui(
     enable_streaming: bool = False,
     initial_prompt: str | None = None,
     loaded_messages: list[LLMMessage] | None = None,
+    collaborative_integration: CollaborativeVibeIntegration | None = None,
 ) -> None:
     update_notifier = PyPIVersionUpdateGateway(project_name="mistral-vibe")
     update_cache_repository = FileSystemUpdateCacheRepository()

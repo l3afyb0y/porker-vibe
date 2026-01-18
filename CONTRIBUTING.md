@@ -165,4 +165,4 @@ While we're not accepting code contributions at the moment, we may open up contr
 
 If you have questions about using Mistral Vibe, please check the [README](README.md) first. For other inquiries, feel free to open a discussion or issue.
 
-Thank you for helping make Mistral Vibe better! 🙏
+Thank you for helping make Mistral Vibe better!

@@ -203,7 +203,7 @@ def test_copy_osc52_writes_correct_sequence(
     mock_file: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TMUX", raising=False)
-    test_text = "héllo wörld 🎉"
+    test_text = "héllo wörld !"
 
     _copy_osc52(test_text)
 

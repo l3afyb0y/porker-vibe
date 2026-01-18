@@ -287,6 +287,9 @@ class VibeConfig(BaseSettings):
     include_prompt_detail: bool = True
     enable_update_checks: bool = True
     api_timeout: float = 720.0
+
+    # Collaborative mode context (injected silently into system prompt)
+    collaborative_prompt_addition: str = Field(default="", exclude=True)
     providers: list[ProviderConfig] = Field(
         default_factory=lambda: list(DEFAULT_PROVIDERS)
     )

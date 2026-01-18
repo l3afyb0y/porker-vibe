@@ -12,6 +12,10 @@ from vibe.core.config import (
     VibeConfig,
     load_api_keys_from_env,
 )
+from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
+from vibe.collaborative.ollama_detector import get_local_model_from_env, get_planning_model
+from vibe.collaborative.planning_model_config import configure_planning_model, get_planning_model_status
+from vibe.collaborative.ollama_manager import ensure_ollama_running, cleanup_ollama
 from vibe.core.interaction_logger import InteractionLogger
 from vibe.core.modes import AgentMode
 from vibe.core.paths.config_paths import CONFIG_FILE, HISTORY_FILE, INSTRUCTIONS_FILE
@@ -138,6 +142,66 @@ def run_cli(args: argparse.Namespace) -> None:
         initial_mode = get_initial_mode(args)
         config = load_config_or_exit(args.agent, initial_mode)
 
+        # Configure local planning model if VIBE_PLANNING_MODEL is set
+        planning_status = get_planning_model_status()
+        if planning_status["is_local"]:
+            config = configure_planning_model(config)
+            rprint(f"[cyan]🧠 Using local planning model: {planning_status['model_name']}[/]")
+            if planning_status["fully_local_mode"]:
+                rprint("[dim]   Fully local mode - no Mistral API required[/]")
+
+        # Initialize collaborative integration if enabled or auto-detected
+        collaborative_integration = None
+        local_model = get_local_model_from_env()
+        planning_model = get_planning_model()
+
+        # Check if we need Ollama (any local model configured)
+        needs_ollama = local_model or planning_model or args.collaborative
+
+        if needs_ollama:
+            # Try to ensure Ollama is running (starts it if needed)
+            success, message = ensure_ollama_running()
+            if success and "started" in message.lower():
+                rprint(f"[dim]🚀 {message}[/]")
+            elif not success:
+                # Ollama not available and couldn't start it
+                rprint(f"[dim]💡 {message}[/]")
+                if not local_model and not planning_model:
+                    # Only a warning if optional
+                    rprint("[dim]   Collaborative mode will be disabled[/]")
+
+        # Auto-enable collaborative mode if VIBE_LOCAL_MODEL is set, or if --collaborative flag is used
+        if args.collaborative or local_model:
+            collaborative_integration = CollaborativeVibeIntegration(config, auto_detect=True)
+
+            # Check if collaborative mode was auto-enabled
+            auto_status = collaborative_integration.get_auto_enable_status()
+
+            if collaborative_integration.is_collaborative_mode_enabled():
+                if auto_status["auto_enabled"]:
+                    # Auto-detected via VIBE_LOCAL_MODEL
+                    model_name = auto_status["local_model"] or "local model"
+                    rprint(f"[green]🤝 Collaborative mode auto-enabled[/]")
+                    rprint(f"[dim]   Planner: Devstral-2 | Implementer: {model_name}[/]")
+                    if auto_status["ollama_error"]:
+                        rprint(f"[yellow]   Warning: {auto_status['ollama_error']}[/]")
+                else:
+                    # Manually enabled via --collaborative
+                    rprint("[green]🤝 Collaborative mode enabled: Devstral-2 + local model[/]")
+
+                # Inject collaborative instructions silently into system prompt
+                # This makes Devstral aware without showing it in the UI chat
+                collaborative_prompt = collaborative_integration.get_planner_system_prompt_addition()
+                if collaborative_prompt:
+                    config.collaborative_prompt_addition = collaborative_prompt
+            else:
+                # Collaborative mode requested but couldn't be enabled
+                if local_model and not auto_status["ollama_available"]:
+                    rprint(f"[yellow]⚠ VIBE_LOCAL_MODEL={local_model} set but Ollama not available[/]")
+                    rprint(f"[dim]   {auto_status['ollama_error'] or 'Start Ollama with: ollama serve'}[/]")
+                    rprint("[dim]   Falling back to default Vibe behavior[/]")
+                    collaborative_integration = None
+
         if args.enabled_tools:
             config.enabled_tools = args.enabled_tools
 
@@ -181,6 +245,7 @@ def run_cli(args: argparse.Namespace) -> None:
                 enable_streaming=True,
                 initial_prompt=args.initial_prompt or stdin_prompt,
                 loaded_messages=loaded_messages,
+                collaborative_integration=collaborative_integration,
             )
 
     except (KeyboardInterrupt, EOFError):

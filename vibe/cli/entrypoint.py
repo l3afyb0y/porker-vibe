@@ -100,6 +100,17 @@ def parse_arguments() -> argparse.Namespace:
         metavar="SESSION_ID",
         help="Resume a specific session by its ID (supports partial matching)",
     )
+    
+    # Collaborative mode
+    parser.add_argument(
+        "--collaborative",
+        action="store_true",
+        default=False,
+        help="Enable collaborative mode with dual-model development. "
+        "Devstral-2 handles planning/review, local model handles implementation. "
+        "Auto-enabled when VIBE_LOCAL_MODEL env var is set and Ollama is running.",
+    )
+    
     return parser.parse_args()
 
 

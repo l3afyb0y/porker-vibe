@@ -417,6 +417,10 @@ def get_universal_system_prompt(
 ) -> str:
     sections = [config.system_prompt]
 
+    # Add collaborative mode context silently (not shown in UI)
+    if hasattr(config, 'collaborative_prompt_addition') and config.collaborative_prompt_addition:
+        sections.append(config.collaborative_prompt_addition)
+
     if config.include_commit_signature:
         sections.append(_add_commit_signature())
 
