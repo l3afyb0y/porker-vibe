@@ -72,7 +72,11 @@ class TomlFileSettingsSource(PydanticBaseSettingsSource):
         file = CONFIG_FILE.path
         try:
             with file.open("rb") as f:
-                return tomllib.load(f)
+                data = tomllib.load(f)
+                # Ensure workdir is never loaded from config file
+                if "workdir" in data:
+                    del data["workdir"]
+                return data
         except FileNotFoundError:
             return {}
         except tomllib.TOMLDecodeError as e:
