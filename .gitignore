@@ -86,3 +86,8 @@ coverage.xml
 pub/
 .bin/
 
+.qodo
+.agent/skills
+.github
+distribution
+vibe-debug.log

@@ -1,5 +1,4 @@
-"""
-Model Coordinator for Dual-Model Collaboration
+"""Model Coordinator for Dual-Model Collaboration.
 
 Handles communication and coordination between Devstral-2 and a local model via Ollama.
 Supports VIBE_LOCAL_MODEL environment variable for seamless configuration.
@@ -7,28 +6,37 @@ Supports VIBE_LOCAL_MODEL environment variable for seamless configuration.
 
 from __future__ import annotations
 
+from datetime import datetime
+import json
+from logging import getLogger
 from pathlib import Path
 from typing import Any
-import json
+
 import requests
-from datetime import datetime
-from logging import getLogger # Added import
 
-logger = getLogger(__name__) # Initialized logger
-
-from .task_manager import TaskManager, TaskType, ModelRole, CollaborativeTask, TaskStatus
-from .ollama_detector import (
+from vibe.collaborative.ollama_detector import (
+    OllamaStatus,
+    check_ollama_availability,
     get_local_model_from_env,
     get_ollama_generate_endpoint,
-    check_ollama_availability,
-    OllamaStatus,
 )
+from vibe.collaborative.task_manager import (
+    CollaborativeTask,
+    ModelRole,
+    TaskManager,
+    TaskStatus,
+    TaskType,
+)
+
+logger = getLogger(__name__)
 
 
 class ModelConfig:
     """Configuration for a model endpoint."""
-    
-    def __init__(self, model_name: str, endpoint: str, api_key: str | None = None):
+
+    def __init__(
+        self, model_name: str, endpoint: str, api_key: str | None = None
+    ) -> None:
         self.model_name = model_name
         self.endpoint = endpoint
         self.api_key = api_key
@@ -39,36 +47,36 @@ class ModelConfig:
 
 class ModelCoordinator:
     """Coordinates communication between multiple models."""
-    
-    def __init__(self, project_root: Path):
+
+    def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
         self.task_manager = TaskManager(project_root)
         self.models: dict[ModelRole, ModelConfig] = {}
         self.config_file = project_root / ".vibe" / "model_config.json"
-        
+
         # Load or create default configuration
         self._load_or_create_config()
-    
-    def _load_or_create_config(self):
+
+    def _load_or_create_config(self) -> None:
         """Load existing config or create default configuration."""
         if self.config_file.exists():
             try:
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file) as f:
                     config_data = json.load(f)
                     for role_name, model_config in config_data.items():
                         role = ModelRole(role_name)
                         self.models[role] = ModelConfig(
-                            model_name=model_config['model_name'],
-                            endpoint=model_config['endpoint'],
-                            api_key=model_config.get('api_key')
+                            model_name=model_config["model_name"],
+                            endpoint=model_config["endpoint"],
+                            api_key=model_config.get("api_key"),
                         )
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning("Could not load model config: %s", e)
                 self._create_default_config()
         else:
             self._create_default_config()
-    
-    def _create_default_config(self):
+
+    def _create_default_config(self) -> None:
         """Create default model configuration.
 
         Uses VIBE_LOCAL_MODEL environment variable if set for the implementer model.
@@ -85,70 +93,74 @@ class ModelCoordinator:
             ModelRole.PLANNER.value: {
                 "model_name": "devstral-2",
                 "endpoint": "http://localhost:11434/api/generate",
-                "api_key": None
+                "api_key": None,
             },
             ModelRole.IMPLEMENTER.value: {
                 "model_name": implementer_model,
                 "endpoint": ollama_endpoint,
-                "api_key": None
-            }
+                "api_key": None,
+            },
         }
-        
+
         # Save the configuration
         try:
-            with open(self.config_file, 'w') as f:
+            with open(self.config_file, "w") as f:
                 json.dump(default_config, f, indent=2)
         except OSError as e:
-            logger.warning("Could not save default model config to %s: %s", self.config_file, e)
-        
+            logger.warning(
+                "Could not save default model config to %s: %s", self.config_file, e
+            )
+
         # Load the configuration into memory
         for role_name, model_config in default_config.items():
             role = ModelRole(role_name)
             self.models[role] = ModelConfig(
-                model_name=model_config['model_name'],
-                endpoint=model_config['endpoint'],
-                api_key=model_config.get('api_key')
+                model_name=model_config["model_name"],
+                endpoint=model_config["endpoint"],
+                api_key=model_config.get("api_key"),
             )
-    
+
     def update_model_config(
         self,
         role: ModelRole,
         model_name: str,
         endpoint: str,
         api_key: str | None = None,
-    ):
+    ) -> None:
         """Update configuration for a specific model role."""
         self.models[role] = ModelConfig(model_name, endpoint, api_key)
-        
+
         # Save the updated configuration
         config_data: dict[str, dict[str, str | None]] = {}
         for model_role, model_config in self.models.items():
             config_data[model_role.value] = {
                 "model_name": model_config.model_name,
                 "endpoint": model_config.endpoint,
-                "api_key": model_config.api_key
+                "api_key": model_config.api_key,
             }
-        
+
         try:
-            with open(self.config_file, 'w') as f:
+            with open(self.config_file, "w") as f:
                 json.dump(config_data, f, indent=2)
         except OSError as e:
             logger.warning("Could not save model config to %s: %s", self.config_file, e)
-    
-    def query_model(self, role: ModelRole, prompt: str, context: dict | None = None) -> str:
+
+    def query_model(
+        self, role: ModelRole, prompt: str, context: dict | None = None
+    ) -> str:
         """Query a specific model with a prompt."""
         if role not in self.models:
             raise ValueError(f"No model configured for role: {role}")
-        
+
         model_config = self.models[role]
-        
+
         # Prepare the payload based on the endpoint type
         if "ollama" in model_config.endpoint:
             # Ollama API format
             payload = {
                 "model": model_config.model_name,
                 "prompt": prompt,
-                "stream": False
+                "stream": False,
             }
             if context:
                 payload["context"] = context
@@ -157,75 +169,89 @@ class ModelCoordinator:
             payload = {
                 "model": model_config.model_name,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7
+                "temperature": 0.7,
             }
-        
+
         try:
             response = requests.post(
                 model_config.endpoint,
                 headers=model_config.headers,
                 json=payload,
-                timeout=30
+                timeout=30,
             )
             response.raise_for_status()
-            
+
             if "ollama" in model_config.endpoint:
                 return response.json()["response"]
             else:
                 return response.json()["choices"][0]["message"]["content"]
-                
+
         except requests.RequestException as e:
             logger.warning("Error querying %s model: %s", role.value, e)
-            return f"Error: Could not query {role.value} model - {str(e)}"
-    
-    def start_collaborative_session(self, project_description: str) -> list[dict[str, Any]] | str:
-        """
-        Start a new collaborative development session by generating a plan.
+            return f"Error: Could not query {role.value} model - {e!s}"
+
+    def start_collaborative_session(
+        self, project_description: str
+    ) -> list[dict[str, Any]] | str:
+        """Start a new collaborative development session by generating a plan.
+
         Returns the generated plan as a parsed Python object.
         """
         # Step 1: Create planning task for Devstral-2
-        planning_task_id = self.task_manager.create_task(
+        self.task_manager.create_task(
             task_type=TaskType.PLANNING,
             description=f"Create development plan for: {project_description}",
-            priority=1
+            priority=1,
         )
-        
+
         # Step 2: Auto-assign tasks (specifically, the planning task)
         self.task_manager.auto_assign_tasks()
-        
+
         # Step 3: Get the planning task
         next_task_result = self.task_manager.get_next_task()
         if not next_task_result:
             return "No planning tasks available for execution."
 
         task_id, planning_task = next_task_result
-        
+
         # Step 4: Execute the planning task
         if planning_task.assigned_to == ModelRole.PLANNER:
             plan_json_str = self._execute_planning_task(planning_task.description)
-            self.task_manager.complete_task(task_id) # Mark planning task as complete
-            
+            self.task_manager.complete_task(task_id)  # Mark planning task as complete
+
             try:
                 # Parse the plan JSON and return it
                 plan_data = json.loads(plan_json_str)
                 # Basic validation for plan structure
-                if not isinstance(plan_data, dict) or "tasks" not in plan_data or not isinstance(plan_data["tasks"], list):
-                    logger.warning("Generated plan does not have expected 'tasks' list. Returning raw JSON.")
+                if (
+                    not isinstance(plan_data, dict)
+                    or "tasks" not in plan_data
+                    or not isinstance(plan_data["tasks"], list)
+                ):
+                    logger.warning(
+                        "Generated plan does not have expected 'tasks' list. Returning raw JSON."
+                    )
                     return plan_json_str
-                
+
                 # Check for "name" and "task_type" in each task, required for start_ralph_loop
                 for task in plan_data["tasks"]:
-                    if not isinstance(task, dict) or "name" not in task or "task_type" not in task:
-                        logger.warning("Generated plan task missing 'name' or 'task_type'. Returning raw JSON.")
+                    if (
+                        not isinstance(task, dict)
+                        or "name" not in task
+                        or "task_type" not in task
+                    ):
+                        logger.warning(
+                            "Generated plan task missing 'name' or 'task_type'. Returning raw JSON."
+                        )
                         return plan_json_str
 
-                return plan_data["tasks"] # Return the list of tasks from the plan
+                return plan_data["tasks"]  # Return the list of tasks from the plan
             except json.JSONDecodeError as e:
                 logger.warning("Error parsing plan JSON from planner: %s", e)
-                return plan_json_str # Return raw JSON if parsing fails
-        
+                return plan_json_str  # Return raw JSON if parsing fails
+
         return "No planning tasks available for execution."
-    
+
     def _execute_planning_task(self, task_description: str) -> str:
         """Execute a planning task using the planner model."""
         prompt = f"""You are an expert software architect. Please create a comprehensive development plan for the following project:
@@ -254,16 +280,16 @@ Please provide the plan in JSON format with the following structure:
   ],
   "technical_considerations": "string"
 }}"""
-        
+
         plan_json = self.query_model(ModelRole.PLANNER, prompt)
-        
+
         return plan_json
-    
-    def _create_implementation_tasks_from_plan(self, plan_json: str):
+
+    def _create_implementation_tasks_from_plan(self, plan_json: str) -> None:
         """Create implementation tasks based on a development plan."""
         try:
             plan = json.loads(plan_json)
-            
+
             task_name_to_id: dict[str, str] = {}
             dependency_names_by_task: dict[str, list[str]] = {}
 
@@ -277,7 +303,7 @@ Please provide the plan in JSON format with the following structure:
                     task_type=task_type,
                     description=task_description,
                     priority=priority,
-                    dependencies=[]
+                    dependencies=[],
                 )
 
                 task_name = task_info.get("name")
@@ -296,29 +322,31 @@ Please provide the plan in JSON format with the following structure:
                     if name in task_name_to_id
                 ]
                 if resolved_dependencies:
-                    self.task_manager.set_task_dependencies(task_id, resolved_dependencies)
+                    self.task_manager.set_task_dependencies(
+                        task_id, resolved_dependencies
+                    )
 
             # Auto-assign the new tasks after dependencies are wired up
             self.task_manager.auto_assign_tasks()
-            
+
         except json.JSONDecodeError as e:
             logger.warning("Error parsing plan JSON: %s", e)
-    
+
     def execute_next_task(self) -> tuple[str | None, str | None]:
         """Execute the next available task in the queue."""
         task_result = self.task_manager.get_next_task()
-        
+
         if not task_result:
             return None, "No tasks available"
-        
+
         task_id, task = task_result
-        task_output = None # Initialize task_output
-        
+        task_output = None  # Initialize task_output
+
         # Set task status to IN_PROGRESS
         self.task_manager.tasks[task_id].status = TaskStatus.IN_PROGRESS
         self.task_manager.tasks[task_id].updated_at = datetime.now()
-        self.task_manager._save_tasks() # Save updated status
-        
+        self.task_manager._save_tasks()  # Save updated status
+
         try:
             if task.assigned_to == ModelRole.PLANNER:
                 # Planning/architecture/review task
@@ -328,7 +356,7 @@ Please provide the plan in JSON format with the following structure:
                 task_output = self._execute_implementer_task(task)
             else:
                 raise ValueError("Task not assigned to any model")
-            
+
             # After model execution, perform verification
             if self._verify_task_completion(task, task_output):
                 self.task_manager.complete_task(task_id)
@@ -336,26 +364,29 @@ Please provide the plan in JSON format with the following structure:
             else:
                 self.task_manager.tasks[task_id].status = TaskStatus.DEBUGGING
                 self.task_manager.tasks[task_id].updated_at = datetime.now()
-                self.task_manager._save_tasks() # Save updated status
-                return task_id, f"Verification failed. Task set to DEBUGGING. Output: {task_output}"
-                
+                self.task_manager._save_tasks()  # Save updated status
+                return (
+                    task_id,
+                    f"Verification failed. Task set to DEBUGGING. Output: {task_output}",
+                )
+
         except Exception as e:
             logger.error("Error executing task %s: %s", task_id, e)
             self.task_manager.tasks[task_id].status = TaskStatus.DEBUGGING
             self.task_manager.tasks[task_id].updated_at = datetime.now()
-            self.task_manager._save_tasks() # Save updated status
+            self.task_manager._save_tasks()  # Save updated status
             return task_id, f"Task execution failed. Set to DEBUGGING. Error: {e}"
-    
+
     def _execute_planner_task(self, task: CollaborativeTask) -> str:
         """Execute a task assigned to the planner model."""
         prompt = self._create_task_prompt(task)
         return self.query_model(ModelRole.PLANNER, prompt)
-    
+
     def _execute_implementer_task(self, task: CollaborativeTask) -> str:
         """Execute a task assigned to the implementer model."""
         prompt = self._create_task_prompt(task)
         return self.query_model(ModelRole.IMPLEMENTER, prompt)
-    
+
     def _create_task_prompt(self, task: CollaborativeTask) -> str:
         """Create a prompt for executing a specific task."""
         base_prompt = f"""Task: {task.description}
@@ -363,12 +394,12 @@ Please provide the plan in JSON format with the following structure:
 Task Type: {task.task_type.name}
 Priority: {task.priority}
 """
-        
+
         if task.dependencies:
             base_prompt += f"\nDependencies: {', '.join(task.dependencies)}"
-        
+
         base_prompt += "\n\nPlease complete this task:"
-        
+
         # Add task-specific instructions
         if task.task_type == TaskType.CODE_IMPLEMENTATION:
             base_prompt += "\n\nWrite clean, well-documented code. Follow best practices and include appropriate tests."
@@ -376,26 +407,30 @@ Priority: {task.priority}
             base_prompt += "\n\nWrite comprehensive documentation. Include examples, usage instructions, and technical details."
         elif task.task_type == TaskType.CODE_REVIEW:
             base_prompt += "\n\nPerform a thorough code review. Check for bugs, security issues, performance problems, and adherence to best practices."
-        
+
         return base_prompt
 
-    def _verify_task_completion(self, task: CollaborativeTask, task_output: str) -> bool:
-        """
-        Verify if a task has been successfully completed.
-        This is a placeholder for actual verification logic (e.g., running tests, linting).
+    def _verify_task_completion(
+        self, task: CollaborativeTask, task_output: str
+    ) -> bool:
+        """Verify if a task has been successfully completed.
+
+        This is a placeholder for actual verification logic (e.g., running tests, lints).
         """
         logger.info(f"Verifying task {task.task_id} of type {task.task_type.name}...")
         # TODO: Implement actual verification logic based on task type
         # For now, assume successful completion
         return True
-    
+
     def get_project_status(self) -> dict:
         """Get the current status of the collaborative project."""
         return {
             "task_status": self.task_manager.get_task_status(),
-            "models_configured": {role.value: config.model_name for role, config in self.models.items()},
+            "models_configured": {
+                role.value: config.model_name for role, config in self.models.items()
+            },
             "pending_tasks": len(self.task_manager.task_queue),
-            "completed_tasks": len(self.task_manager.completed_tasks)
+            "completed_tasks": len(self.task_manager.completed_tasks),
         }
 
     def check_ollama_status(self) -> OllamaStatus:
@@ -406,9 +441,8 @@ Priority: {task.priority}
         """Get the configured local model name from VIBE_LOCAL_MODEL."""
         return get_local_model_from_env()
 
-    def refresh_config_from_env(self):
-        """
-        Refresh model configuration from environment variables.
+    def refresh_config_from_env(self) -> None:
+        """Refresh model configuration from environment variables.
 
         This allows dynamic reconfiguration when VIBE_LOCAL_MODEL changes.
         """
@@ -416,9 +450,7 @@ Priority: {task.priority}
         if local_model:
             ollama_endpoint = get_ollama_generate_endpoint()
             self.update_model_config(
-                ModelRole.IMPLEMENTER,
-                local_model,
-                ollama_endpoint
+                ModelRole.IMPLEMENTER, local_model, ollama_endpoint
             )
 
     def get_implementer_model_info(self) -> dict[str, object]:
@@ -431,5 +463,5 @@ Priority: {task.priority}
             "configured": True,
             "model_name": implementer.model_name,
             "endpoint": implementer.endpoint,
-            "from_env": get_local_model_from_env() is not None
+            "from_env": get_local_model_from_env() is not None,
         }

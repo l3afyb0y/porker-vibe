@@ -18,7 +18,6 @@ from vibe.core.tools.builtins.search_replace import (
     SearchReplaceArgs,
     SearchReplaceResult,
 )
-
 from vibe.core.tools.builtins.write_file import WriteFileArgs, WriteFileResult
 
 
@@ -214,12 +213,6 @@ class SearchReplaceResultWidget(ToolResultWidget[SearchReplaceResult]):
                 yield render_diff_line(line)
 
 
-
-
-
-
-
-
 class ReadFileApprovalWidget(ToolApprovalWidget[ReadFileArgs]):
     def compose(self) -> ComposeResult:
         yield NoMarkupStatic(f"path: {self.args.path}", classes="approval-description")
@@ -280,7 +273,6 @@ APPROVAL_WIDGETS: dict[str, type[ToolApprovalWidget]] = {
     "write_file": WriteFileApprovalWidget,
     "search_replace": SearchReplaceApprovalWidget,
     "grep": GrepApprovalWidget,
-
 }
 
 RESULT_WIDGETS: dict[str, type[ToolResultWidget]] = {
@@ -289,7 +281,6 @@ RESULT_WIDGETS: dict[str, type[ToolResultWidget]] = {
     "write_file": WriteFileResultWidget,
     "search_replace": SearchReplaceResultWidget,
     "grep": GrepResultWidget,
-
 }
 
 
