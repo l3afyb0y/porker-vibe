@@ -99,48 +99,76 @@ class TodoWidget(Static):
     async def _render_file_todos(self) -> bool:
         """Render todos from markdown file. Returns True if any were rendered."""
         all_todos = self._parse_todos_from_file()
-        active_todos = [t for t in all_todos if t[1] != TodoStatus.COMPLETED]
-
-        if not active_todos:
+        if not all_todos:
             return False
 
-        visible_todos = active_todos[:5]
-
-        for content_text, status in visible_todos:
+        for content_text, status in all_todos:
             icon = self._get_todo_status_icon(status)
             text = content_text
-            if len(text) > MAX_TODO_TEXT_LENGTH:
-                text = text[:37] + "..."
+
+            status_class = "todo-pending"
+            if status == TodoStatus.COMPLETED:
+                status_class = "todo-completed"
+            elif status == TodoStatus.IN_PROGRESS:
+                status_class = "todo-in-progress"
 
             await self._todo_list.mount(
-                NoMarkupStatic(f"{icon} {text}", classes="todo-task")
+                NoMarkupStatic(f"{icon} {text}", classes=f"todo-task {status_class}")
             )
 
-        if len(active_todos) > MAX_VISIBLE_TODOS:
-            await self._todo_list.mount(
-                NoMarkupStatic(
-                    f"  ... (+{len(active_todos) - MAX_VISIBLE_TODOS} more)",
-                    classes="todo-more",
-                )
-            )
         return True
 
     async def _render_plan_todos(self, add_separator: bool) -> bool:
-        """Render plan todos. Returns True if rendered."""
-        if not self.plan_manager.current_plan:
+        """Render plan todos from PlanManager. Returns True if rendered."""
+        if not self.plan_manager or not self.plan_manager.current_plan:
             return False
 
         plan = self.plan_manager.current_plan
-        if any(epic.status != ItemStatus.COMPLETED for epic in plan.epics):
-            if add_separator:
-                await self._todo_list.mount(
-                    NoMarkupStatic("---", classes="todo-separator")
-                )
+        if not plan.epics:
+            return False
+
+        if add_separator:
+            await self._todo_list.mount(NoMarkupStatic("---", classes="todo-separator"))
+
+        for epic in plan.epics:
+            status_icon = self._get_status_icon(epic.status)
+            status_class = self._get_status_class(epic.status)
             await self._todo_list.mount(
-                NoMarkupStatic(f"Goal: {plan.goal[:30]}...", classes="todo-goal")
+                NoMarkupStatic(
+                    f"{status_icon} {epic.name}", classes=f"todo-epic {status_class}"
+                )
             )
-            return True
-        return False
+
+            for task in epic.tasks:
+                status_icon = self._get_status_icon(task.status)
+                status_class = self._get_status_class(task.status)
+                await self._todo_list.mount(
+                    NoMarkupStatic(
+                        f"  {status_icon} {task.name}",
+                        classes=f"todo-task {status_class}",
+                    )
+                )
+
+                for subtask in task.subtasks:
+                    status_icon = self._get_status_icon(subtask.status)
+                    status_class = self._get_status_class(subtask.status)
+                    await self._todo_list.mount(
+                        NoMarkupStatic(
+                            f"    {status_icon} {subtask.name}",
+                            classes=f"todo-subtask {status_class}",
+                        )
+                    )
+        return True
+
+    def _get_status_class(self, status: ItemStatus | TodoStatus | TaskStatus) -> str:
+        """Get the CSS class for a status."""
+        # Convert TaskStatus/ItemStatus to a string if needed
+        status_str = str(status).lower()
+        if "completed" in status_str:
+            return "todo-completed"
+        if "in_progress" in status_str or "progress" in status_str:
+            return "todo-in-progress"
+        return "todo-pending"
 
     async def _render_collaborative_todos(self, add_separator: bool) -> bool:
         """Render collaborative todos. Returns True if rendered."""
@@ -151,19 +179,26 @@ class TodoWidget(Static):
             return False
 
         tasks = self.collaborative_integration.collaborative_agent.task_manager.tasks
-        active_collab = [t for t in tasks.values() if t.status != TaskStatus.COMPLETED]
-
-        if not active_collab:
+        if not tasks:
             return False
 
         if add_separator:
             await self._todo_list.mount(NoMarkupStatic("---", classes="todo-separator"))
 
-        for task in active_collab[:3]:
+        for task in tasks.values():
             status_icon = self._get_collab_status_icon(task.status)
             desc = task.description if task.description else ""
+
+            status_class = "todo-pending"
+            if task.status == TaskStatus.COMPLETED:
+                status_class = "todo-completed"
+            elif task.status == TaskStatus.IN_PROGRESS:
+                status_class = "todo-in-progress"
+
             await self._todo_list.mount(
-                NoMarkupStatic(f"{status_icon} {desc[:35]}", classes="todo-task")
+                NoMarkupStatic(
+                    f"{status_icon} {desc}", classes=f"todo-task {status_class}"
+                )
             )
         return True
 

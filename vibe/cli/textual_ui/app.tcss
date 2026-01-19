@@ -149,7 +149,7 @@ ModeIndicator {
 #input {
     width: 1fr;
     height: auto;
-    max-height: 6; 
+    max-height: 6;
     background: transparent;
     color: $text;
     border: none;
@@ -692,6 +692,18 @@ ContextProgress {
 
 .todo-task {
     color: $text; padding: 0;
+}
+
+.todo-pending {
+    color: #ff4d4d; /* Bright red */
+}
+
+.todo-in-progress {
+    color: #ffa500; /* Orange */
+}
+
+.todo-completed {
+    color: #4dff4d; /* Bright green */
 }
 
 .todo-more {

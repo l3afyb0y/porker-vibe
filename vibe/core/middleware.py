@@ -60,16 +60,16 @@ class LoopDetectionMiddleware:
     """Detects repetitive patterns in LLM responses and tool calls to prevent infinite loops."""
 
     # Configuration for loop detection
-    LOOP_WINDOW_SIZE = 5  # Number of past turns to consider for repetition
-    LOOP_REPETITION_THRESHOLD = (
-        3  # Number of times a pattern must repeat to trigger a warning
+    LOOP_WINDOW_SIZE = 10  # Extended window for better sequence detection
+    LOOP_REPETITION_THRESHOLD = 5  # Higher threshold for standard repetition warning
+    STRICT_REPETITION_THRESHOLD = (
+        75  # Hard stop if exactly the same thing repeats 75 times
     )
-    MAX_CONSECUTIVE_LOOPS = 3  # Number of consecutive loop detections before stopping
 
     def __init__(self) -> None:
         self._recent_tool_calls: deque[str] = deque(maxlen=self.LOOP_WINDOW_SIZE)
         self._recent_llm_responses: deque[str] = deque(maxlen=self.LOOP_WINDOW_SIZE)
-        self._consecutive_loop_detections = 0
+        self._repetition_counts: dict[str, int] = {}
         self._pending_warning: str | None = None
 
     async def before_turn(self, context: ConversationContext) -> MiddlewareResult:
@@ -91,7 +91,6 @@ class LoopDetectionMiddleware:
                 current_turn_llm_response += message.content
             if message.tool_calls:
                 for tc in message.tool_calls:
-                    # Store a consistent representation of the tool call
                     args_str = (
                         json.dumps(tc.function.arguments)
                         if tc.function and tc.function.arguments
@@ -99,42 +98,50 @@ class LoopDetectionMiddleware:
                     )
                     current_turn_tool_calls.append(f"{tc.function.name}:{args_str}")
 
+        # 1. Check for strict repetition (75x)
+        total_output = current_turn_llm_response + "|".join(current_turn_tool_calls)
+        if total_output:
+            if total_output in self._repetition_counts:
+                self._repetition_counts[total_output] += 1
+            else:
+                self._repetition_counts = {
+                    total_output: 1
+                }  # Reset if something else appears
+
+            if (
+                self._repetition_counts[total_output]
+                >= self.STRICT_REPETITION_THRESHOLD
+            ):
+                return MiddlewareResult(
+                    action=MiddlewareAction.STOP,
+                    reason=f"Strict repetition threshold reached ({self.STRICT_REPETITION_THRESHOLD}x same output).",
+                )
+
         if current_turn_llm_response:
             self._recent_llm_responses.append(current_turn_llm_response)
         if current_turn_tool_calls:
-            # Join all tool calls of the turn into a single string for sequence detection
             self._recent_tool_calls.append("|".join(current_turn_tool_calls))
 
         loop_detected, loop_reason = self._detect_loop()
 
         if loop_detected:
-            self._consecutive_loop_detections += 1
-            if self._consecutive_loop_detections >= self.MAX_CONSECUTIVE_LOOPS:
-                self._consecutive_loop_detections = 0  # Reset after stopping
-                self._pending_warning = None  # Clear any pending warning
-                return MiddlewareResult(
-                    action=MiddlewareAction.STOP,
-                    reason=f"Repeated loops detected ({loop_reason}). Agent stopped to prevent infinite execution.",
-                )
-            else:
-                # Store the warning to be injected in the next before_turn
-                self._pending_warning = f"<{VIBE_WARNING_TAG}>Loop detected ({loop_reason})! Consider changing your strategy or providing new input. Consecutive detections: {self._consecutive_loop_detections}/{self.MAX_CONSECUTIVE_LOOPS}</{VIBE_WARNING_TAG}>"
+            # Alert the model so it can correct itself
+            self._pending_warning = f"<{VIBE_WARNING_TAG}>Loop detected ({loop_reason})! Please analyze your recent actions and adjust your strategy to avoid repetition.</{VIBE_WARNING_TAG}>"
         else:
-            self._consecutive_loop_detections = 0  # Reset if no loop is detected
-            self._pending_warning = None  # Clear any pending warning
+            self._pending_warning = None
 
         return MiddlewareResult()
 
     def _detect_loop(self) -> tuple[bool, str]:
         """Check for repetitive patterns in responses and tool calls."""
-        if len(self._recent_llm_responses) == self.LOOP_WINDOW_SIZE:
+        if len(self._recent_llm_responses) >= self.LOOP_REPETITION_THRESHOLD:
             result = self._check_for_repetition(
                 list(self._recent_llm_responses), "repetitive LLM responses"
             )
             if result[0]:
                 return result
 
-        if len(self._recent_tool_calls) == self.LOOP_WINDOW_SIZE:
+        if len(self._recent_tool_calls) >= self.LOOP_REPETITION_THRESHOLD:
             result = self._check_for_repetition(
                 list(self._recent_tool_calls), "repetitive tool calls"
             )
@@ -145,13 +152,11 @@ class LoopDetectionMiddleware:
 
     def _check_for_repetition(self, items: list[str], reason: str) -> tuple[bool, str]:
         """Check if items contain a repeating pattern."""
-        for i in range(self.LOOP_WINDOW_SIZE - self.LOOP_REPETITION_THRESHOLD):
+        window_size = len(items)
+        for i in range(window_size - self.LOOP_REPETITION_THRESHOLD + 1):
             pattern = items[i : i + self.LOOP_REPETITION_THRESHOLD]
-            remaining = items[i + self.LOOP_REPETITION_THRESHOLD :]
-            if (
-                len(pattern) > 0
-                and all(p == pattern[0] for p in pattern)
-                and any(p == pattern[0] for p in remaining)
+            if len(pattern) >= self.LOOP_REPETITION_THRESHOLD and all(
+                p == pattern[0] for p in pattern
             ):
                 return True, reason
         return False, ""
@@ -159,7 +164,7 @@ class LoopDetectionMiddleware:
     def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
         self._recent_tool_calls.clear()
         self._recent_llm_responses.clear()
-        self._consecutive_loop_detections = 0
+        self._repetition_counts.clear()
         self._pending_warning = None
 
 

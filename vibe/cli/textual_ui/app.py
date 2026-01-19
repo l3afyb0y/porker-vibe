@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import time
 import traceback
-from typing import Any, ClassVar, assert_never
+from typing import Any, ClassVar, assert_never, cast
 
 from pydantic import BaseModel
 from textual.app import App, ComposeResult
@@ -314,6 +314,7 @@ class VibeApp(App):  # noqa: PLR0904
             self._ensure_agent_init_task()
 
         self.call_after_refresh(self.on_resize)
+        self.call_after_refresh(self._scroll_to_bottom)
 
     def _process_initial_prompt(self) -> None:
         if self._initial_prompt:
@@ -764,6 +765,8 @@ class VibeApp(App):  # noqa: PLR0904
             # After mounting, we can safely update the markdown content
             for assistant_widget in assistant_widgets:
                 await assistant_widget.display_content()
+
+            self.call_after_refresh(self._scroll_to_bottom)
 
     async def _mount_history_assistant_message(
         self, msg: LLMMessage, messages_area: Widget, tool_call_map: dict[str, str]
@@ -1687,18 +1690,35 @@ class VibeApp(App):  # noqa: PLR0904
         self, message: StreamingMessageBase.StreamingContentAppended
     ) -> None:
         if self._auto_scroll:
-            self._scroll_to_bottom()
+            self.call_after_refresh(self._scroll_to_bottom)
 
-    def _is_scrolled_to_bottom(self, scroll_view: Vertical) -> bool:
+    def on_scroll(self, event: VerticalScroll.Scrolled) -> None:
+        """Handle scroll events to track manual vs auto scroll."""
+        if event.container.id != "chat":
+            return
+
+        # If user scrolled manually, we might want to disable auto-scroll
+        # We check if they are within a small threshold of the bottom
+        chat = cast(VerticalScroll, event.container)
+        is_at_bottom = self._is_scrolled_to_bottom(chat)
+
+        if is_at_bottom:
+            self._auto_scroll = True
+        elif event.delta_y != 0:
+            # If there was actual vertical movement and we're not at bottom,
+            # it's a manual scroll away from the bottom.
+            self._auto_scroll = False
+
+    def _is_scrolled_to_bottom(self, scroll_view: VerticalScroll) -> bool:
         try:
-            threshold = 3
-            return scroll_view.scroll_y >= (scroll_view.max_scroll_y - threshold)
+            # Check if we're near the bottom (within a few pixels)
+            return scroll_view.scroll_y >= (scroll_view.max_scroll_y - 2)
         except Exception:
             return True
 
     def _scroll_to_bottom(self) -> None:
         try:
-            chat = self.query_one("#chat", Vertical)
+            chat = self.query_one("#chat", VerticalScroll)
             chat.scroll_end(animate=False)
         except Exception:
             pass

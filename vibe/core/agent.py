@@ -335,7 +335,16 @@ class Agent:
                     yield event
 
                 last_message = self.messages[-1]
-                should_break_loop = last_message.role != Role.tool
+
+                # Check if there are more actionable items in the plan
+                next_item_available = (
+                    self.plan_manager.get_next_actionable_item() is not None
+                )
+
+                # Stay in loop if we just executed a tool or if there's more work in the plan
+                should_break_loop = (
+                    last_message.role != Role.tool and not next_item_available
+                )
 
                 self._flush_new_messages()
 
