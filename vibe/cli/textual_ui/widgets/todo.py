@@ -135,28 +135,26 @@ class TodoWidget(Static):
         ]
 
     async def update_todos(self) -> None:
-        """Update the todo display efficiently."""
-        try:
-            # 1. Gather all data first (no DOM touches)
-            file_todos = self._get_file_todo_data()
-            plan_todos = self._get_plan_todo_data()
-            collab_todos = self._get_collaborative_todo_data()
+        """Update the todo display from todos.md file only.
 
-            # 2. State check to prevent redundant updates and flashing
-            current_state = str((file_todos, plan_todos, collab_todos))
+        The todos.md file is the single source of truth for the todo list.
+        PlanManager and CollaborativeAgent are separate systems not shown here.
+        """
+        try:
+            # Only read from todos.md file - the single source of truth
+            file_todos = self._get_file_todo_data()
+
+            # State check to prevent redundant updates and flashing
+            current_state = str(file_todos)
             if current_state == self._last_state:
                 return
             self._last_state = current_state
 
-            # 3. Batch the UI update
+            # Batch the UI update
             def do_update() -> None:
                 self._todo_list.remove_children()
 
-                has_content = False
-
-                # Render file todos
                 if file_todos:
-                    has_content = True
                     for text, status in file_todos:
                         icon = self._get_todo_status_icon(status)
                         status_class = self._get_status_class(status)
@@ -165,52 +163,7 @@ class TodoWidget(Static):
                                 f"{icon} {text}", classes=f"todo-task {status_class}"
                             )
                         )
-
-                # Render plan todos
-                if plan_todos:
-                    if has_content:
-                        self._todo_list.mount(
-                            NoMarkupStatic("---", classes="todo-separator")
-                        )
-                    has_content = True
-                    for item_type, name, status_class in plan_todos:
-                        # Map type to icon/indent
-                        prefix = ""
-                        # Re-calculate icon based on status string for plan items
-                        icon = "○"
-                        if "completed" in status_class:
-                            icon = "✓"
-                        elif "progress" in status_class:
-                            icon = "▶"
-
-                        if item_type == "epic":
-                            classes = f"todo-epic {status_class}"
-                        elif item_type == "task":
-                            prefix = "  "
-                            classes = f"todo-task {status_class}"
-                        else:  # subtask
-                            prefix = "    "
-                            classes = f"todo-subtask {status_class}"
-
-                        self._todo_list.mount(
-                            NoMarkupStatic(f"{prefix}{icon} {name}", classes=classes)
-                        )
-
-                # Render collaborative todos
-                if collab_todos:
-                    if has_content:
-                        self._todo_list.mount(
-                            NoMarkupStatic("---", classes="todo-separator")
-                        )
-                    has_content = True
-                    for desc, status_class in collab_todos:
-                        self._todo_list.mount(
-                            NoMarkupStatic(
-                                f"○ {desc}", classes=f"todo-task {status_class}"
-                            )
-                        )
-
-                if not has_content:
+                else:
                     self._todo_list.mount(
                         NoMarkupStatic("○ No active tasks", classes="todo-empty")
                     )

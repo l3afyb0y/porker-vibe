@@ -461,9 +461,9 @@ class VibeApp(App):  # noqa: PLR0904
             await self._mount_and_scroll(UserMessage(user_input))
             handler = getattr(self, command.handler)
             if asyncio.iscoroutinefunction(handler):
-                await handler()
+                await handler(user_input)
             else:
-                handler()
+                handler(user_input)
             return True
         return False
 
@@ -890,7 +890,9 @@ class VibeApp(App):  # noqa: PLR0904
             await self._finalize_current_streaming_message()
 
             try:
-                await self.query_one(TodoWidget).update_todos()
+                todo_widget = self.query(TodoWidget).first()
+                if todo_widget:
+                    await todo_widget.update_todos()
             except Exception as e:
                 self.log_error(e, "TodoWidget.update_todos() after agent turn")
                 # Don't show error in TUI here as it's not critical
@@ -936,11 +938,11 @@ class VibeApp(App):  # noqa: PLR0904
 
         self._interrupt_requested = False
 
-    async def _show_help(self) -> None:
+    async def _show_help(self, _: str) -> None:
         help_text = self.commands.get_help_text()
         await self._mount_and_scroll(UserCommandMessage(help_text))
 
-    async def _show_status(self) -> None:
+    async def _show_status(self, _: str) -> None:
         self.post_message(
             AssistantMessage(
                 f"[bold blue]Current Agent Status:[/bold blue]\n\n"
@@ -981,7 +983,7 @@ class VibeApp(App):  # noqa: PLR0904
                 AssistantMessage("Invalid percentage. Please enter a number.")
             )
 
-    async def _toggle_autocompact(self) -> None:
+    async def _toggle_autocompact(self, _: str) -> None:
         self.config.autocompaction_enabled = not self.config.autocompaction_enabled
         VibeConfig.save_updates({
             "autocompaction_enabled": self.config.autocompaction_enabled
@@ -1169,13 +1171,13 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
 
-    async def _show_config(self) -> None:
+    async def _show_config(self, _: str) -> None:
         """Switch to the configuration app in the bottom panel."""
         if self._current_bottom_app == BottomApp.Config:
             return
         await self._switch_to_config_app()
 
-    async def _reload_config(self) -> None:
+    async def _reload_config(self, _: str) -> None:
         try:
             new_config = VibeConfig.load(**self._current_agent_mode.config_overrides)
 
@@ -1203,7 +1205,7 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
 
-    async def _clear_history(self) -> None:
+    async def _clear_history(self, _: str) -> None:
         if self.agent is None:
             await self._mount_and_scroll(
                 ErrorMessage(
@@ -1242,7 +1244,7 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
 
-    async def _show_log_path(self) -> None:
+    async def _show_log_path(self, _: str) -> None:
         if self.agent is None:
             await self._mount_and_scroll(
                 ErrorMessage(
@@ -1275,7 +1277,7 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
 
-    async def _compact_history(self) -> None:
+    async def _compact_history(self, _: str) -> None:
         if self._agent_running:
             await self._mount_and_scroll(
                 ErrorMessage(
@@ -1350,10 +1352,10 @@ class VibeApp(App):  # noqa: PLR0904
             return None
         return self.agent.interaction_logger.session_id[:8]
 
-    async def _exit_app(self) -> None:
+    async def _exit_app(self, _: str) -> None:
         self.exit(result=self._get_session_resume_info())
 
-    async def _setup_terminal(self) -> None:
+    async def _setup_terminal(self, _: str) -> None:
         result = setup_terminal()
 
         if result.success:

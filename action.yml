@@ -1,4 +1,3 @@
-# yaml-language-server: $schema=https://json.schemastore.org/github-action.json
 name: "Porker Vibe"
 description: "Download, install, and run Porker Vibe"
 author: "Porker Roland"

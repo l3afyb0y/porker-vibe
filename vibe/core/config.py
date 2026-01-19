@@ -223,6 +223,7 @@ class ModelConfig(BaseModel):
     provider: str
     alias: str
     temperature: float = 0.2
+    context_size: int = 128000  # Default context window size in tokens
     input_price: float = 0.0  # Price per million input tokens
     output_price: float = 0.0  # Price per million output tokens
 
