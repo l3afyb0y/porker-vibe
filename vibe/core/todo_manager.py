@@ -67,38 +67,98 @@ class TodoItem:
 class TodoManager:
     """
     Manages todos for the current agent session.
-    Todos are persistent per-project and stored in .vibe/todos.json
+    Todos are persistent per-project and stored in ./.vibe/plans/todos.md
     """
 
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self._todos_file_path = self._get_todos_file_path()
         self._todos: list[TodoItem] = []
+        self._ensure_path_exists()
         self.load_todos()
 
     def _get_todos_file_path(self) -> Path:
-        """Get the path where todos JSON will be stored."""
-        vibe_path = self.project_path / ".vibe"
-        vibe_path.mkdir(parents=True, exist_ok=True)
-        return vibe_path / "todos.json"
+        """Get the path where todos Markdown will be stored."""
+        return self.project_path / ".vibe" / "plans" / "todos.md"
+
+    def _ensure_path_exists(self) -> None:
+        """Ensure the directory and file for the todos exist."""
+        self._todos_file_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._todos_file_path.exists():
+            self._todos_file_path.write_text("# Project Todos\n\n", encoding="utf-8")
 
     def load_todos(self) -> None:
-        """Load todos from file."""
+        """Load todos from Markdown file."""
         if not self._todos_file_path.exists():
             self._todos = []
             return
 
         try:
-            with self._todos_file_path.open("r", encoding="utf-8") as f:
-                todos_data = json.load(f)
-            self._todos = [TodoItem.from_dict(item) for item in todos_data]
-        except (json.JSONDecodeError, FileNotFoundError, IOError):
+            content = self._todos_file_path.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            raw_todos = []
+            
+            # Simple Markdown parsing
+            # Format: - [ ] content <!-- active_form="...", order=0 -->
+            import re
+            pattern = re.compile(r"^\s*-\s*\[([\s/xX])\]\s*(.*?)(?:\s*<!--\s*(.*?)\s*-->)?$")
+            
+            for i, line in enumerate(lines):
+                match = pattern.match(line)
+                if not match:
+                    continue
+                    
+                status_char = match.group(1).lower()
+                content_text = match.group(2).strip()
+                metadata_str = match.group(3) or ""
+                
+                # Parse metadata (active_form, order)
+                metadata = {}
+                if metadata_str:
+                    for item in metadata_str.split(","):
+                        if "=" in item:
+                            k, v = item.split("=", 1)
+                            metadata[k.strip()] = v.strip().strip('"').strip("'")
+                
+                status = TodoStatus.PENDING
+                if status_char == "x":
+                    status = TodoStatus.COMPLETED
+                elif status_char == "/":
+                    status = TodoStatus.IN_PROGRESS
+                
+                raw_todos.append(TodoItem(
+                    content=content_text,
+                    active_form=metadata.get("active_form", ""),
+                    status=status,
+                    order=int(metadata.get("order", i)),
+                ))
+            
+            # Deduplicate by content during load
+            seen_content = set()
+            deduplicated = []
+            for todo in raw_todos:
+                content_stripped = todo.content.strip()
+                if content_stripped and content_stripped not in seen_content:
+                    seen_content.add(content_stripped)
+                    deduplicated.append(todo)
+            self._todos = deduplicated
+        except (IOError, Exception):
             self._todos = []
 
     def save_todos(self) -> None:
-        """Save todos to file."""
-        with self._todos_file_path.open("w", encoding="utf-8") as f:
-            json.dump([todo.to_dict() for todo in self._todos], f, indent=2)
+        """Save todos to Markdown file."""
+        lines = ["# Project Todos", ""]
+        for todo in sorted(self._todos, key=lambda t: t.order):
+            status_char = " "
+            if todo.status == TodoStatus.COMPLETED:
+                status_char = "x"
+            elif todo.status == TodoStatus.IN_PROGRESS:
+                status_char = "/"
+            
+            metadata = f"active_form=\"{todo.active_form}\", order={todo.order}"
+            lines.append(f"- [{status_char}] {todo.content} <!-- {metadata} -->")
+        
+        self._todos_file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def set_todos(self, todos: list[dict]) -> None:
         """
@@ -106,11 +166,19 @@ class TodoManager:
         Expected format: [{"content": "...", "status": "pending|in_progress|completed", "activeForm": "..."}]
         """
         new_todos = []
+        seen_content = set()
+        
         for todo_data in todos:
+            content = todo_data.get("content", "").strip()
+            if not content or content in seen_content:
+                continue
+                
+            seen_content.add(content)
+            
             # Try to find existing todo by content to preserve ID
             existing_todo = None
             for existing in self._todos:
-                if existing.content == todo_data.get("content", ""):
+                if existing.content == content:
                     existing_todo = existing
                     break
 
@@ -124,7 +192,7 @@ class TodoManager:
             else:
                 # Create new todo
                 new_todos.append(TodoItem(
-                    content=todo_data.get("content", ""),
+                    content=content,
                     active_form=todo_data.get("activeForm", ""),
                     status=TodoStatus(todo_data.get("status", "pending")),
                     order=len(new_todos),
@@ -135,10 +203,16 @@ class TodoManager:
 
     def get_todos(self) -> list[TodoItem]:
         """Get all todos."""
+        # Guard against None _todos
+        if self._todos is None:
+            self._todos = []
         return self._todos.copy()
 
     def get_todos_in_order(self) -> list[TodoItem]:
         """Get todos sorted by order field."""
+        # Guard against None _todos
+        if self._todos is None:
+            self._todos = []
         return sorted(self._todos, key=lambda t: t.order)
 
     def clear_todos(self) -> None:
@@ -148,6 +222,9 @@ class TodoManager:
 
     def get_active_todo(self) -> Optional[TodoItem]:
         """Get the currently in-progress todo."""
+        # Guard against None _todos
+        if self._todos is None:
+            self._todos = []
         for todo in self._todos:
             if todo.status == TodoStatus.IN_PROGRESS:
                 return todo
@@ -155,6 +232,10 @@ class TodoManager:
 
     def get_stats(self) -> dict:
         """Get todo statistics."""
+        # Guard against None _todos
+        if self._todos is None:
+            self._todos = []
+
         total = len(self._todos)
         completed = sum(1 for todo in self._todos if todo.status == TodoStatus.COMPLETED)
         in_progress = sum(1 for todo in self._todos if todo.status == TodoStatus.IN_PROGRESS)

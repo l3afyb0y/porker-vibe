@@ -32,9 +32,38 @@ class ToolCallMessage(StatusMessage):
 
     def get_content(self) -> str:
         if self._event and self._event.tool_class:
-            adapter = ToolUIDataAdapter(self._event.tool_class)
-            display = adapter.get_call_display(self._event)
-            return display.summary
+            try:
+                adapter = ToolUIDataAdapter(self._event.tool_class)
+                display = adapter.get_call_display(self._event)
+                return display.summary
+            except Exception as e:
+                # Log the error
+                import traceback
+                import sys
+                from datetime import datetime
+                from pathlib import Path
+
+                error_log_path = Path.home() / ".vibe" / "error.log"
+                try:
+                    error_log_path.parent.mkdir(parents=True, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    with open(error_log_path, "a", encoding="utf-8") as f:
+                        f.write(f"\n{'='*80}\n")
+                        f.write(f"[{timestamp}] UI Error in get_call_display: {self._tool_name}\n")
+                        f.write(f"{'='*80}\n")
+                        f.write(f"Error Type: {type(e).__name__}\n")
+                        f.write(f"Error Message: {str(e)}\n")
+                        f.write(f"Tool: {self._tool_name}\n")
+                        f.write(f"\nTraceback:\n")
+                        f.write(traceback.format_exc())
+                        f.write(f"\n{'='*80}\n")
+                        f.flush()
+                except Exception:
+                    sys.stderr.write(f"\n[ERROR LOGGING FAILED in get_call_display]\n")
+                    sys.stderr.write(f"Original error: {type(e).__name__}: {e}\n")
+                    sys.stderr.flush()
+
+                return f"{self._tool_name} (display error: {type(e).__name__})"
         return self._tool_name
 
 
@@ -128,18 +157,50 @@ class ToolResultMessage(Static):
             await self._render_simple()
             return
 
-        adapter = ToolUIDataAdapter(self._event.tool_class)
-        display = adapter.get_result_display(self._event)
+        try:
+            adapter = ToolUIDataAdapter(self._event.tool_class)
+            display = adapter.get_result_display(self._event)
 
-        widget = get_result_widget(
-            self._event.tool_name,
-            self._event.result,
-            success=display.success,
-            message=display.message,
-            collapsed=self.collapsed,
-            warnings=display.warnings,
-        )
-        await self._content_container.mount(widget)
+            widget = get_result_widget(
+                self._event.tool_name,
+                self._event.result,
+                success=display.success,
+                message=display.message,
+                collapsed=self.collapsed,
+                warnings=display.warnings,
+            )
+            await self._content_container.mount(widget)
+        except Exception as e:
+            # Log the error
+            import traceback
+            import sys
+            from datetime import datetime
+            from pathlib import Path
+
+            error_log_path = Path.home() / ".vibe" / "error.log"
+            try:
+                error_log_path.parent.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                with open(error_log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n{'='*80}\n")
+                    f.write(f"[{timestamp}] UI Error in get_result_display: {self._event.tool_name}\n")
+                    f.write(f"{'='*80}\n")
+                    f.write(f"Error Type: {type(e).__name__}\n")
+                    f.write(f"Error Message: {str(e)}\n")
+                    f.write(f"Tool: {self._event.tool_name}\n")
+                    f.write(f"\nTraceback:\n")
+                    f.write(traceback.format_exc())
+                    f.write(f"\n{'='*80}\n")
+                    f.flush()
+            except Exception:
+                sys.stderr.write(f"\n[ERROR LOGGING FAILED in get_result_display]\n")
+                sys.stderr.write(f"Original error: {type(e).__name__}: {e}\n")
+                sys.stderr.flush()
+
+            # Render a simple error message
+            await self._content_container.mount(
+                NoMarkupStatic(f"Display error: {type(e).__name__}: {str(e)}\nSee ~/.vibe/error.log")
+            )
 
     async def _render_simple(self) -> None:
         if self._content_container is None:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import traceback
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
@@ -47,63 +50,101 @@ class TodoWidget(Static):
         await self.update_todos()
 
     async def update_todos(self) -> None:
-        has_content = False
-        await self._todo_list.remove_children()
+        # Always log to ~/.vibe/error.log
+        error_log_path = Path.home() / ".vibe" / "error.log"
 
-        # 1. Check TodoManager (agent-created todos)
-        all_todos = self.todo_manager.get_todos_in_order()
-        
-        # Show first 5 that are NOT completed
-        active_todos = [t for t in all_todos if t.status != TodoStatus.COMPLETED]
-        
-        if active_todos:
-            has_content = True
-            visible_todos = active_todos[:5]
+        try:
+            # Force reload from disk to ensure sync with tool updates
+            try:
+                self.todo_manager.load_todos()
+            except Exception:
+                # Fallback to current memory state if file reload fails
+                pass
 
-            for todo in visible_todos:
-                icon = self._get_todo_status_icon(todo.status)
-                text = todo.active_form if todo.status == TodoStatus.IN_PROGRESS else todo.content
-                if len(text) > 40:
-                    text = text[:37] + "..."
-                
-                await self._todo_list.mount(
-                    NoMarkupStatic(f"{icon} {text}", classes="todo-task")
-                )
+            has_content = False
+            await self._todo_list.remove_children()
 
-            if len(active_todos) > 5:
-                await self._todo_list.mount(
-                    NoMarkupStatic(f"  ... (+{len(active_todos)-5} more)", classes="todo-more")
-                )
+            # 1. Check TodoManager (agent-created todos)
+            all_todos = self.todo_manager.get_todos_in_order()
 
-        # 2. Check core PlanManager
-        if self.plan_manager.current_plan:
-            plan = self.plan_manager.current_plan
-            # Only show if not fully completed
-            if any(epic.status != ItemStatus.COMPLETED for epic in plan.epics):
-                if has_content:
-                    await self._todo_list.mount(NoMarkupStatic("---", classes="todo-separator"))
+            # Ensure all_todos is never None
+            all_todos = all_todos if all_todos is not None else []
+
+            # Show first 5 that are NOT completed
+            active_todos = [t for t in all_todos if t.status != TodoStatus.COMPLETED]
+
+            if active_todos:
                 has_content = True
-                await self._todo_list.mount(NoMarkupStatic(f"Goal: {plan.goal[:30]}...", classes="todo-goal"))
+                visible_todos = active_todos[:5]
 
-        # 3. Check Collaborative TaskManager
-        if self.collaborative_integration and self.collaborative_integration.collaborative_agent:
-            tasks = self.collaborative_integration.collaborative_agent.task_manager.tasks
-            active_collab = [t for t in tasks.values() if t.status != TaskStatus.COMPLETED]
-            if active_collab:
-                if has_content:
-                    await self._todo_list.mount(NoMarkupStatic("---", classes="todo-separator"))
-                
-                has_content = True
-                for task in active_collab[:3]: # Limit collab tasks too
-                    status_icon = self._get_collab_status_icon(task.status)
+                for todo in visible_todos:
+                    icon = self._get_todo_status_icon(todo.status)
+                    text = todo.active_form if todo.status == TodoStatus.IN_PROGRESS else todo.content
+                    # Guard against None text
+                    if text is None:
+                        text = ""
+                    if len(text) > 40:
+                        text = text[:37] + "..."
+
                     await self._todo_list.mount(
-                        NoMarkupStatic(f"{status_icon} {task.description[:35]}", classes="todo-task")
+                        NoMarkupStatic(f"{icon} {text}", classes="todo-task")
                     )
 
-        if not has_content:
-            await self._todo_list.mount(NoMarkupStatic("○ No active tasks", classes="todo-empty"))
+                # Guard against None active_todos
+                if active_todos is not None and len(active_todos) > 5:
+                    await self._todo_list.mount(
+                        NoMarkupStatic(f"  ... (+{len(active_todos)-5} more)", classes="todo-more")
+                    )
 
-        self.display = True
+            # 2. Check core PlanManager
+            if self.plan_manager.current_plan:
+                plan = self.plan_manager.current_plan
+                # Only show if not fully completed
+                if any(epic.status != ItemStatus.COMPLETED for epic in plan.epics):
+                    if has_content:
+                        await self._todo_list.mount(NoMarkupStatic("---", classes="todo-separator"))
+                    has_content = True
+                    await self._todo_list.mount(NoMarkupStatic(f"Goal: {plan.goal[:30]}...", classes="todo-goal"))
+
+            # 3. Check Collaborative TaskManager
+            if self.collaborative_integration and self.collaborative_integration.collaborative_agent:
+                tasks = self.collaborative_integration.collaborative_agent.task_manager.tasks
+                active_collab = [t for t in tasks.values() if t.status != TaskStatus.COMPLETED]
+                if active_collab:
+                    if has_content:
+                        await self._todo_list.mount(NoMarkupStatic("---", classes="todo-separator"))
+
+                    has_content = True
+                    for task in active_collab[:3]: # Limit collab tasks too
+                        status_icon = self._get_collab_status_icon(task.status)
+                        # Guard against None description
+                        desc = task.description if task.description else ""
+                        await self._todo_list.mount(
+                            NoMarkupStatic(f"{status_icon} {desc[:35]}", classes="todo-task")
+                        )
+
+            if not has_content:
+                await self._todo_list.mount(NoMarkupStatic("○ No active tasks", classes="todo-empty"))
+
+            self.display = True
+        except Exception as e:
+            # Log error with full traceback
+            try:
+                error_log_path.parent.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                with open(error_log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n{'='*80}\n")
+                    f.write(f"[{timestamp}] Error in TodoWidget.update_todos()\n")
+                    f.write(f"{'='*80}\n")
+                    f.write(f"Error Type: {type(e).__name__}\n")
+                    f.write(f"Error Message: {str(e)}\n")
+                    f.write(f"\nTraceback:\n")
+                    f.write(traceback.format_exc())
+                    f.write(f"\n{'='*80}\n")
+            except Exception:
+                pass
+            # Re-raise to allow higher-level handlers to see it
+            raise
 
     def _get_todo_status_icon(self, status: TodoStatus) -> str:
         match status:

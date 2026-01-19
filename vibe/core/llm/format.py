@@ -83,23 +83,28 @@ def get_active_tool_classes(
         tool_manager: ToolManager instance with discovered tools
         config: VibeConfig with enabled_tools/disabled_tools settings
     """
+    from vibe.core.utils import logger
+    
     all_tools = list(tool_manager.available_tools().values())
-
+    
+    active_tools = []
     if config.enabled_tools:
-        return [
+        active_tools = [
             tool_class
             for tool_class in all_tools
             if _name_matches(tool_class.get_name(), config.enabled_tools)
         ]
-
-    if config.disabled_tools:
-        return [
+    elif config.disabled_tools:
+        active_tools = [
             tool_class
             for tool_class in all_tools
             if not _name_matches(tool_class.get_name(), config.disabled_tools)
         ]
+    else:
+        active_tools = all_tools
 
-    return all_tools
+    logger.info("Active tools: %s", [t.get_name() for t in active_tools])
+    return active_tools
 
 
 class ParsedToolCall(BaseModel):

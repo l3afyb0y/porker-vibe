@@ -27,18 +27,29 @@ class CollaborativeAgent:
         self.task_manager = self.model_coordinator.task_manager
         
         # Initialize project metadata
+        self._metadata_file = self._get_metadata_path()
         self.project_metadata = self._load_project_metadata()
     
+    def _get_metadata_path(self) -> Path:
+        """Get the centralized path for project metadata."""
+        from vibe.core.paths.global_paths import VIBE_HOME
+        import hashlib
+        
+        project_name = self.project_root.name
+        path_hash = hashlib.sha256(str(self.project_root.resolve()).encode()).hexdigest()[:8]
+        
+        storage_dir = VIBE_HOME.path / "projects" / f"{project_name}_{path_hash}"
+        storage_dir.mkdir(parents=True, exist_ok=True)
+        return storage_dir / "metadata.json"
+
     def _load_project_metadata(self) -> Dict[str, Any]:
         """Load or initialize project metadata."""
-        metadata_file = self.project_root / ".vibe" / "project_metadata.json"
-        
-        if metadata_file.exists():
+        if self._metadata_file.exists():
             try:
-                with open(metadata_file, 'r') as f:
+                with open(self._metadata_file, 'r') as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError) as e: # Added as e
-                logger.warning("Could not load project metadata: %s", e) # Changed print to logger.warning
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning("Could not load project metadata: %s", e)
         
         # Return default metadata
         return {
@@ -52,10 +63,9 @@ class CollaborativeAgent:
     
     def _save_project_metadata(self):
         """Save project metadata."""
-        metadata_file = self.project_root / ".vibe" / "project_metadata.json"
-        metadata_file.parent.mkdir(exist_ok=True)
+        self._metadata_file.parent.mkdir(exist_ok=True)
         
-        with open(metadata_file, 'w') as f:
+        with open(self._metadata_file, 'w') as f:
             json.dump(self.project_metadata, f, indent=2)
     
     def start_project(self, project_name: str, project_description: str) -> Dict[str, Any]:

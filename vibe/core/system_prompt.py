@@ -447,10 +447,24 @@ def _get_available_skills_section(skill_manager: SkillManager | None) -> str:
     return "\n".join(lines)
 
 
+def _get_todo_context(todo_manager: TodoManager) -> str:
+    todos = todo_manager.get_todos_in_order()
+    if not todos:
+        return ""
+
+    lines = ["## Current Todos", ""]
+    for todo in todos:
+        from vibe.core.todo_manager import TodoStatus
+        icon = "✓" if todo.status == TodoStatus.COMPLETED else "▶" if todo.status == TodoStatus.IN_PROGRESS else "○"
+        lines.append(f"- {icon} {todo.content}")
+    return "\n".join(lines)
+
+
 def get_universal_system_prompt(
     tool_manager: ToolManager,
     config: VibeConfig,
     plan_manager: PlanManager,
+    todo_manager: TodoManager | None = None,
     skill_manager: SkillManager | None = None,
 ) -> str:
     sections = [config.system_prompt]
@@ -474,6 +488,11 @@ def get_universal_system_prompt(
                 tool_prompts.append(prompt)
         if tool_prompts:
             sections.append("\n---\n".join(tool_prompts))
+
+        if todo_manager:
+            todo_context = _get_todo_context(todo_manager)
+            if todo_context:
+                sections.append(todo_context)
 
         user_instructions = config.instructions.strip() or _load_user_instructions()
         if user_instructions.strip():

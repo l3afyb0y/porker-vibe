@@ -118,7 +118,14 @@ class PlanSync(
 
     def get_call_display(self, event: ToolCallEvent) -> ToolCallDisplay:
         """Display format for tool call in TUI."""
-        args = PlanSyncArgs.model_validate(event.arguments)
+        # Use event.args directly - it's already validated
+        if not isinstance(event.args, PlanSyncArgs):
+            return ToolCallDisplay(
+                title="Sync with PLAN.md",
+                detail="Invalid arguments type",
+            )
+
+        args = event.args
 
         if args.action == "read":
             detail = "Reading PLAN.md"

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import traceback
+from datetime import datetime
+from pathlib import Path
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -27,17 +30,40 @@ class EventHandler:
         self,
         mount_callback: Callable,
         scroll_callback: Callable,
+        todo_update_callback: Callable,
 
         get_tools_collapsed: Callable[[], bool],
         get_todos_collapsed: Callable[[], bool],
     ) -> None:
         self.mount_callback = mount_callback
         self.scroll_callback = scroll_callback
+        self.todo_update_callback = todo_update_callback
 
         self.get_tools_collapsed = get_tools_collapsed
         self.get_todos_collapsed = get_todos_collapsed
         self.current_tool_call: ToolCallMessage | None = None
         self.current_compact: CompactMessage | None = None
+
+        # Set up error log file - always in ~/.vibe
+        self.error_log_path = Path.home() / ".vibe" / "error.log"
+        self.error_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def log_error(self, error: Exception, context: str = "") -> None:
+        """Log error with full traceback to file."""
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(self.error_log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"[{timestamp}] Error in {context}\n")
+                f.write(f"{'='*80}\n")
+                f.write(f"Error Type: {type(error).__name__}\n")
+                f.write(f"Error Message: {str(error)}\n")
+                f.write(f"\nTraceback:\n")
+                f.write(traceback.format_exc())
+                f.write(f"\n{'='*80}\n")
+        except Exception:
+            # If logging fails, don't crash the app
+            pass
 
     async def handle_event(
         self,
@@ -51,6 +77,18 @@ class EventHandler:
             case ToolResultEvent():
                 sanitized_event = self._sanitize_event(event)
                 await self._handle_tool_result(sanitized_event)
+                try:
+                    await self.todo_update_callback()
+                except Exception as e:
+                    self.log_error(e, "todo_update_callback after ToolResultEvent")
+                    # Show error in TUI
+                    from vibe.cli.textual_ui.widgets.messages import ErrorMessage
+                    error_msg = ErrorMessage(
+                        f"Error updating todos: {type(e).__name__}: {str(e)}\n"
+                        f"See ~/.vibe/error.log for full traceback",
+                        collapsed=self.get_tools_collapsed()
+                    )
+                    await self.mount_callback(error_msg)
             case ReasoningEvent():
                 await self._handle_reasoning_message(event)
             case AssistantEvent():

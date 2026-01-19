@@ -302,6 +302,9 @@ The collaborative router will enforce this automatically.
                 priority=self._determine_priority_from_prompt(prompt)
             )
             
+            # Immediately mark as completed since the result is returned
+            self.collaborative_agent.task_manager.complete_task(agent_task_id)
+            
             return {
                 "use_collaborative": True,
                 "task_id": agent_task_id,

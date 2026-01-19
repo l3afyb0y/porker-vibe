@@ -55,6 +55,7 @@ class ToolManager:
     @staticmethod
     def _compute_search_paths(config: VibeConfig) -> list[Path]:
         paths: list[Path] = [DEFAULT_TOOL_DIR.path]
+        logger.info("Computing search paths. Default tool dir: %s", DEFAULT_TOOL_DIR.path)
 
         for path in config.tool_paths:
             if path.is_dir():
@@ -73,14 +74,18 @@ class ToolManager:
             if rp not in seen:
                 seen.add(rp)
                 unique.append(rp)
+        
+        logger.info("Unique search paths: %s", unique)
         return unique
 
     @staticmethod
     def _iter_tool_classes(search_paths: list[Path]) -> Iterator[type[BaseTool]]:
         for base in search_paths:
             if not base.is_dir():
+                logger.info("Search path is not a directory: %s", base)
                 continue
 
+            logger.info("Scanning directory for tools: %s", base)
             for path in base.rglob("*.py"):
                 if not path.is_file():
                     continue
@@ -88,17 +93,20 @@ class ToolManager:
                 if name.startswith("_"):
                     continue
 
+                logger.info("Checking file for tools: %s", path)
                 stem = re.sub(r"[^0-9A-Za-z_]", "_", path.stem) or "mod"
                 module_name = f"vibe_tools_discovered_{stem}"
 
                 spec = importlib.util.spec_from_file_location(module_name, path)
                 if spec is None or spec.loader is None:
+                    logger.warning("Could not create spec for %s", path)
                     continue
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
                 try:
                     spec.loader.exec_module(module)
-                except Exception:
+                except Exception as e:
+                    logger.error("Failed to load tool module %s: %s", path, e)
                     continue
 
                 for obj in vars(module).values():
@@ -108,6 +116,7 @@ class ToolManager:
                         continue
                     if inspect.isabstract(obj):
                         continue
+                    logger.info("Discovered tool: %s (%s)", obj.get_name(), obj.__name__)
                     yield obj
 
     @staticmethod

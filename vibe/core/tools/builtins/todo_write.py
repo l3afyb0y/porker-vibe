@@ -1,5 +1,4 @@
-"""
-TodoWrite Tool - Allows agents to manage todos during conversation.
+"""TodoWrite Tool - Allows agents to manage todos during conversation.
 
 Similar to Claude Code's TodoWrite functionality, this tool enables agents to:
 - Create and track tasks
@@ -13,12 +12,7 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 from pydantic import BaseModel, Field
 
-from vibe.core.tools.base import (
-    BaseTool,
-    BaseToolConfig,
-    BaseToolState,
-    ToolPermission,
-)
+from vibe.core.tools.base import BaseTool, BaseToolConfig, BaseToolState, ToolPermission
 from vibe.core.tools.ui import ToolCallDisplay, ToolResultDisplay, ToolUIData
 
 if TYPE_CHECKING:
@@ -27,20 +21,37 @@ if TYPE_CHECKING:
 
 class TodoItemInput(BaseModel):
     """A single todo item."""
-    content: str = Field(description="The imperative form describing what needs to be done (e.g., 'Run tests', 'Build the project')")
-    status: str = Field(description="Task status: 'pending', 'in_progress', or 'completed'")
-    activeForm: str = Field(description="The present continuous form shown during execution (e.g., 'Running tests', 'Building the project')")
+
+    content: str = Field(
+        description="The imperative form describing what needs to be done (e.g., 'Run tests', 'Build the project')"
+    )
+    status: str = Field(
+        description="Task status: 'pending', 'in_progress', or 'completed'"
+    )
+    activeForm: str = Field(
+        description="The present continuous form shown during execution (e.g., 'Running tests', 'Building the project')"
+    )
 
 
 class TodoWriteArgs(BaseModel):
     """Arguments for the TodoWrite tool."""
+
     todos: list[TodoItemInput] = Field(
         description="The complete list of todos. Include ALL todos (pending, in_progress, and completed) every time."
     )
 
+    @field_validator("todos", mode="before")
+    @classmethod
+    def validate_todos_not_none(cls, v):
+        """Ensure todos is not None."""
+        if v is None:
+            return []  # Return empty list instead of None
+        return v
+
 
 class TodoWriteResult(BaseModel):
     """Result from the TodoWrite tool."""
+
     message: str = Field(description="Confirmation message")
     total: int = Field(description="Total number of todos")
     completed: int = Field(description="Number of completed todos")
@@ -50,11 +61,13 @@ class TodoWriteResult(BaseModel):
 
 class TodoWriteConfig(BaseToolConfig):
     """Configuration for the TodoWrite tool."""
+
     permission: ToolPermission = ToolPermission.ALWAYS
 
 
 class TodoWriteState(BaseToolState):
     """State for the TodoWrite tool."""
+
     pass
 
 
@@ -62,8 +75,7 @@ class TodoWrite(
     BaseTool[TodoWriteArgs, TodoWriteResult, TodoWriteConfig, TodoWriteState],
     ToolUIData[TodoWriteArgs, TodoWriteResult],
 ):
-    """
-    Create and manage a structured task list for tracking progress.
+    """Create and manage a structured task list for tracking progress.
 
     Use this tool to:
     - Track multi-step tasks and their progress
@@ -87,9 +99,19 @@ class TodoWrite(
     async def run(self, args: TodoWriteArgs) -> TodoWriteResult:
         # Get the todo manager from the agent's context
         # This is injected by the agent during initialization
-        if not hasattr(self, '_todo_manager'):
+        if not hasattr(self, "_todo_manager"):
             return TodoWriteResult(
                 message="Todo manager not initialized",
+                total=0,
+                completed=0,
+                in_progress=0,
+                pending=0,
+            )
+
+        # Guard against None todos
+        if args.todos is None:
+            return TodoWriteResult(
+                message="Error: todos argument is None",
                 total=0,
                 completed=0,
                 in_progress=0,
@@ -122,26 +144,38 @@ class TodoWrite(
 
     def get_call_display(self, event: ToolCallEvent) -> ToolCallDisplay:
         """Display format for tool call in TUI."""
-        args = TodoWriteArgs.model_validate(event.arguments)
+        try:
+            # Use event.args directly - it's already validated
+            if not isinstance(event.args, TodoWriteArgs):
+                return ToolCallDisplay(
+                    summary="Update Todo List", content="Invalid arguments type"
+                )
 
-        # Count by status
-        pending = sum(1 for t in args.todos if t.status == "pending")
-        in_progress = sum(1 for t in args.todos if t.status == "in_progress")
-        completed = sum(1 for t in args.todos if t.status == "completed")
+            args = event.args
 
-        detail = f"{len(args.todos)} todos ({completed} completed, {in_progress} in progress, {pending} pending)"
+            # Ensure todos_list is never None
+            todos_list = args.todos if args.todos is not None else []
 
-        return ToolCallDisplay(
-            title="Update Todo List",
-            detail=detail,
-        )
+            # Count by status
+            pending = sum(1 for t in todos_list if t.status == "pending")
+            in_progress = sum(1 for t in todos_list if t.status == "in_progress")
+            completed = sum(1 for t in todos_list if t.status == "completed")
+
+            detail = f"{len(todos_list)} todos ({completed} completed, {in_progress} in progress, {pending} pending)"
+
+            return ToolCallDisplay(summary="Update Todo List", content=detail)
+        except Exception as e:
+            return ToolCallDisplay(
+                summary="Update Todo List",
+                content=f"Error parsing todo arguments: {e!s}",
+            )
 
     def get_result_display(self, event: ToolResultEvent) -> ToolResultDisplay:
         """Display format for tool result in TUI."""
         if event.error:
-            return ToolResultDisplay(detail=f"Error: {event.error}")
+            return ToolResultDisplay(success=False, message=f"Error: {event.error}")
 
         result = TodoWriteResult.model_validate_json(event.result)
         detail = f"Updated: {result.total} todos ({result.completed} completed, {result.in_progress} in progress, {result.pending} pending)"
 
-        return ToolResultDisplay(detail=detail)
+        return ToolResultDisplay(success=True, message=detail)

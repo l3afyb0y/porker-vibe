@@ -1,31 +1,30 @@
-# Vibe Collaborative Framework
+# Vibe Fork
 
-A forked version of Mistral Vibe that integrates Devstral-2 with local models via Ollama for collaborative coding, enhanced with intelligent planning, todo tracking, and a refined TUI.
+A refined, collaborative coding framework forked from Mistral Vibe. Featuring a Gemini-inspired blue theme, side-panel Todo tracking, and seamless multi-model integration via Ollama.
 
 *Please report issues on this Github and not the main mistralai/mistral-vibe repo.*
 
 ## Features
 
 ### Core Capabilities
+- **Gemini-Inspired UI**: A clean, blue-themed TUI with a dedicated side-panel for task tracking and full-width chat input.
 - **Fully Local Mode**: Run entirely on your PC without Mistral API (set VIBE_PLANNING_MODEL)
 - **Hybrid Mode**: Devstral for planning, local models for implementation (default)
 - **Multi-Model Collaboration**: Route tasks to specialized models automatically
 - **Automatic Ollama Management**: Vibe automatically starts Ollama if needed and stops it on exit
-- **Fallback Behavior**: Gracefully falls back to standard Vibe when Ollama isn't available
 
 ### Enhanced Planning & Tracking
-- **Todo System**: Agents track multi-step tasks in real-time with `TodoWrite` tool
+- **Side-Panel Todo System**: Real-time task tracking in a collapsible left-side panel.
 - **PLAN.md Integration**: High-level project planning that guides agent work across sessions
 - **PlanSync Tool**: Agents synchronize immediate work (todos) with long-term goals (PLAN.md)
 - **Persistent State**: Todos and plans persist per-project in `.vibe/` directory
-- **Real-Time TUI Updates**: Watch agent progress with live todo status in the terminal UI
 
 ### Developer Experience
-- **Enhanced TUI**: Redesigned with "complex simplicity" - sophisticated visual structure through clean patterns
+- **Minimal Repository**: Cleaned of dev artifacts like `tests/` and AI-specific `.gemini/` files for a leaner distribution.
+- **Enhanced TUI**: Redesigned with a sophisticated visual structure through blue-gradient patterns.
 - **Error Detection**: Multi-level error detection with graceful degradation and recovery
 - **Debug Loops**: Systematic debugging with hypothesis-driven iteration
 - **Self-Verification**: Built-in quality checks and verification protocols
-- **Test-First Development**: Integrated support for TDD workflow
 
 ## Operating Modes
 
@@ -279,7 +278,7 @@ Example agent workflow:
 
 ## Fallback Behavior
 
-When Ollama isn't running or VIBE_LOCAL_MODEL isn't set, Vibe continues to work normally using Devstral-2 for everything.
+When Ollama isn't running or VIBE_LOCAL_MODEL isn't set, Vibe Fork continues to work normally using Devstral-2 for everything.
 
 ## Project Structure
 
@@ -298,7 +297,7 @@ vibe/
 │   │   ├── plan_manager.py # Hierarchical planning
 │   │   └── plan_document_manager.py  # PLAN.md management
 │   ├── cli/
-│   │   └── textual_ui/     # Terminal UI
+│   │   └── textual_ui/     # Gemini-inspired Terminal UI
 │   ├── collaborative/      # Multi-model coordination
 │   └── core/tools/builtins/
 │       ├── todo_write.py   # TodoWrite tool
@@ -307,7 +306,7 @@ vibe/
 
 ## Agent Guidelines (AGENTS.md)
 
-The `AGENTS.md` file contains comprehensive guidelines for agent behavior:
+The `AGENTS.md` file contains comprehensive guidelines for agent behavior tailored for Vibe Fork:
 
 - **Modern Python 3.12+ practices** (match-case, walrus operator, type hints)
 - **Complex task decomposition** strategies
@@ -326,13 +325,13 @@ These guidelines ensure agents handle complex, multi-file coding tasks with robu
 - **Ollama** running locally (or accessible endpoint)
 - **Mistral API key** - Only required if NOT using VIBE_PLANNING_MODEL (fully local mode)
 - **Local models** pulled in Ollama
-- **uv** package manager (recommended for Arch Linux users)
+- **uv** package manager (required for Arch Linux users)
 
 ## Installation
 
 ### Using uv (Recommended)
 
-The project uses `uv` for Python environment management (see `AGENTS.md` for rationale):
+The project uses `uv` for Python environment management:
 
 ```bash
 # Install uv (if not installed)
@@ -345,7 +344,7 @@ cd vibe
 # Install dependencies
 uv sync
 
-# Run Vibe
+# Run Vibe Fork
 uv run vibe
 
 # Or install in development mode
@@ -372,7 +371,7 @@ pip install -e .
 # Or install normally
 pip install .
 
-# Run Vibe
+# Run Vibe Fork
 vibe
 ```
 
@@ -385,7 +384,7 @@ vibe
 When starting a new project or complex feature:
 
 ```bash
-# Run vibe and create PLAN.md
+# Run Vibe Fork and create PLAN.md
 vibe
 
 # The agent will create PLAN.md with this structure:
@@ -414,12 +413,12 @@ Any issues preventing progress.
 
 ### Working with Todos
 
-Agents automatically use todos for complex tasks:
+Agents automatically use the side-panel todos for complex tasks:
 
 ```
 User: "Implement user authentication with JWT tokens"
 
-Agent: Creates todos:
+Agent: Creates todos in the left panel:
   ○ Research JWT implementation patterns
   ○ Create authentication middleware
   ○ Implement login endpoint
@@ -453,7 +452,7 @@ Agent uses PlanSync tool:
 ### Best Practices
 
 1. **Keep PLAN.md updated** - Update as architecture evolves
-2. **Use todos for session work** - Track immediate multi-step tasks
+2. **Use todos for session work** - Track immediate multi-step tasks in the side-panel
 3. **Use PLAN.md for project scope** - High-level goals and milestones
 4. **Let agents sync** - Agents use PlanSync to stay aligned
 5. **Review .vibe/** - Contains persistent state (todos, plans, locks)
@@ -462,7 +461,7 @@ Agent uses PlanSync tool:
 
 ### "Ollama is not running" or "Failed to start Ollama"
 
-Vibe tries to start Ollama automatically. If it fails:
+Vibe Fork tries to start Ollama automatically. If it fails:
 
 ```bash
 # Check if Ollama is installed
@@ -476,7 +475,7 @@ sudo systemctl start ollama
 sudo systemctl enable ollama  # Auto-start on boot
 ```
 
-If Ollama is running as a systemd service, Vibe will detect it and won't start a duplicate instance.
+If Ollama is running as a systemd service, Vibe Fork will detect it and won't start a duplicate instance.
 
 ### "Model not found"
 ```bash
@@ -529,7 +528,7 @@ See [Ollama Modelfile documentation](https://github.com/ollama/ollama/blob/main/
 Check that:
 1. The agent has created todos using `TodoWrite` tool
 2. The `.vibe/` directory exists in your project
-3. The TodoWidget is not collapsed (press Ctrl+T to toggle)
+3. The side-panel is not collapsed (press Ctrl+T to toggle)
 
 To verify todos exist:
 ```bash
@@ -552,7 +551,7 @@ A:
 
 Both work together. Agents can use either depending on the task.
 
-**Q: Will todos persist across vibe sessions?**
+**Q: Will todos persist across sessions?**
 A: Yes! Todos are saved to `.vibe/todos.json` per-project. They persist until explicitly cleared or all marked complete.
 
 **Q: Can I manually edit PLAN.md?**
@@ -581,7 +580,7 @@ A: Agents follow guidelines in `AGENTS.md` for:
 
 ## License
 
-See the original Vibe repository for license information.
+See the original Mistral Vibe repository for license information.
 
 ## Contributing
 

@@ -137,7 +137,7 @@ guidelines:
   - title: "Complex Task Decomposition"
     description: >
       When facing complex, difficult, or multi-file coding tasks:
-      - ALWAYS use the TodoWrite tool to create a task breakdown BEFORE starting implementation
+      - ALWAYS use the todo_write tool to create a task breakdown in ./.vibe/plans/todos.md BEFORE starting implementation
       - Decompose large tasks into atomic, testable subtasks (aim for 5-15 tasks)
       - Mark tasks as in_progress BEFORE starting work (limit to ONE at a time)
       - Mark tasks as completed IMMEDIATELY after finishing
@@ -269,15 +269,15 @@ guidelines:
       - UPDATE CONTINUOUSLY: Todos update in real-time in the TUI (above the input box)
       - COMPLETE PROMPTLY: Mark todos as completed immediately after finishing each task
       - AUTO-REFRESH: When ALL todos are complete, automatically check PLAN.md for next steps
-      - SYNC WITH PLAN: Use the PlanSync tool to read PLAN.md and extract next steps
-      - CREATE NEW TODOS: Based on PLAN.md's "Next Steps" section, create fresh todos using TodoWrite
+      - SYNC WITH PLAN: Use the plan_sync tool to read PLAN.md and extract next steps
+      - CREATE NEW TODOS: Based on PLAN.md's "Next Steps" section, create fresh todos in ./.vibe/plans/todos.md using todo_write
       - KEEP ALIGNED: If todos drift from PLAN.md goals, update either todos or PLAN.md to re-align
       - EMPTY IS OK: If no todos and no next steps in PLAN.md, that's fine (user will provide direction)
       - VISIBLE PROGRESS: The todo widget shows progress without cluttering chat messages
       Auto-refresh workflow when all todos complete:
       1. Detect that all todos have status "completed"
-      2. Use PlanSync tool with action="get_next_steps" to read PLAN.md
-      3. If next steps exist, use TodoWrite to create new todos based on them
+      2. Use plan_sync tool with action="get_next_steps" to read PLAN.md
+      3. If next steps exist, use todo_write to create new todos in ./.vibe/plans/todos.md based on them
       4. If no next steps exist, clear todos and wait for user input
       5. Update PLAN.md's "Current Status" to reflect completed work
       This creates a continuous flow: User sets goals in PLAN.md → Agent creates todos →

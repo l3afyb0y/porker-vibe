@@ -64,39 +64,57 @@ class TaskManager:
         self.tasks: dict[str, CollaborativeTask] = {}
         self.task_queue: list[str] = []
         self.completed_tasks: list[str] = []
-        self.task_history_file = project_root / ".vibe" / "collaborative_tasks.json"
-        
-        # Ensure .vibe directory exists
-        self.task_history_file.parent.mkdir(exist_ok=True)
+        self.task_history_file = self._get_storage_path()
         
         # Load existing tasks if any
         self._load_tasks()
     
+    def _get_storage_path(self) -> Path:
+        """Get the centralized storage path for collaborative tasks."""
+        from vibe.core.paths.global_paths import VIBE_HOME
+        import hashlib
+        
+        project_name = self.project_root.name
+        path_hash = hashlib.sha256(str(self.project_root.resolve()).encode()).hexdigest()[:8]
+        
+        storage_dir = VIBE_HOME.path / "collaborative_tasks" / f"{project_name}_{path_hash}"
+        storage_dir.mkdir(parents=True, exist_ok=True)
+        return storage_dir / "tasks.json"
+
     def _load_tasks(self):
         """Load tasks from persistent storage."""
         if self.task_history_file.exists():
             try:
                 with open(self.task_history_file, 'r') as f:
                     task_data = json.load(f)
-                    for task_id, task_info in task_data.items():
-                        task = CollaborativeTask(
-                            task_id=task_id,
-                            task_type=TaskType[task_info['task_type']],
-                            description=task_info['description'],
-                            priority=task_info.get('priority', 3),
-                            status=TaskStatus[task_info['status']],
-                            assigned_to=ModelRole(task_info['assigned_to']) if task_info.get('assigned_to') else None,
-                            created_at=datetime.fromisoformat(task_info['created_at']),
-                            updated_at=datetime.fromisoformat(task_info['updated_at']),
-                            dependencies=task_info.get('dependencies', [])
-                        )
-                        self.tasks[task_id] = task
-                        if task.status == TaskStatus.PENDING:
-                            self.task_queue.append(task_id)
-                        elif task.status == 'completed':
-                            self.completed_tasks.append(task_id)
+                
+                # Deduplicate by description during load
+                seen_descriptions = set()
+                
+                for task_id, task_info in task_data.items():
+                    desc = task_info['description'].strip()
+                    if desc in seen_descriptions:
+                        continue
+                    seen_descriptions.add(desc)
+
+                    task = CollaborativeTask(
+                        task_id=task_id,
+                        task_type=TaskType[task_info['task_type']],
+                        description=desc,
+                        priority=task_info.get('priority', 3),
+                        status=TaskStatus[task_info['status']],
+                        assigned_to=ModelRole(task_info['assigned_to']) if task_info.get('assigned_to') else None,
+                        created_at=datetime.fromisoformat(task_info['created_at']),
+                        updated_at=datetime.fromisoformat(task_info['updated_at']),
+                        dependencies=task_info.get('dependencies', [])
+                    )
+                    self.tasks[task_id] = task
+                    if task.status == TaskStatus.PENDING:
+                        self.task_queue.append(task_id)
+                    elif task.status == TaskStatus.COMPLETED:
+                        self.completed_tasks.append(task_id)
             except (json.JSONDecodeError, KeyError) as e:
-                logger.warning("Could not load tasks: %s", e) # Changed print to logger.warning
+                logger.warning("Could not load tasks: %s", e)
     
     def _save_tasks(self):
         """Save tasks to persistent storage."""

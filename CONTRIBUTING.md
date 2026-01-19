@@ -1,10 +1,10 @@
-# Contributing to Mistral Vibe
+# Contributing to Vibe Fork
 
-Thank you for your interest in Mistral Vibe! We appreciate your enthusiasm and support.
+Thank you for your interest in Vibe Fork! We appreciate your enthusiasm and support.
 
 ## Current Status
 
-**Mistral Vibe is in active development** — our team is iterating quickly and making lots of changes under the hood. Because of this pace, we may be slower than usual when reviewing PRs and issues.
+**Vibe Fork is in active development** — we are iterating quickly and making changes under the hood to enhance the collaborative coding experience.
 
 **We especially encourage**:
 
@@ -39,7 +39,7 @@ We'd love to hear your ideas! When submitting feedback or feature requests:
 
 ## Development Setup
 
-This section is for developers who want to set up the repository for local development, even though we're not currently accepting contributions.
+This section is for developers who want to set up the repository for local development.
 
 ### Prerequisites
 
@@ -51,8 +51,8 @@ This section is for developers who want to set up the repository for local devel
 1. Clone the repository:
 
    ```bash
-   git clone <repository-url>
-   cd mistral-vibe
+   git clone https://github.com/l3afyb0y/vibe.git
+   cd vibe
    ```
 
 2. Install dependencies:
@@ -70,26 +70,6 @@ This section is for developers who want to set up the repository for local devel
    ```
 
    Pre-commit hooks will automatically run checks before each commit.
-
-### Running Tests
-
-Run all tests:
-
-```bash
-uv run pytest
-```
-
-Run tests with verbose output:
-
-```bash
-uv run pytest -v
-```
-
-Run a specific test file:
-
-```bash
-uv run pytest tests/test_agent_tool_call.py
-```
 
 ### Linting and Type Checking
 
@@ -153,16 +133,8 @@ The pre-commit hooks include:
 
 See `pyproject.toml` for detailed configuration of Ruff and Pyright.
 
-## Code Contributions
-
-While we're not accepting code contributions at the moment, we may open up contributions in the future. When that happens, we'll update this document with:
-
-- Pull request process
-- Contribution guidelines
-- Review process
-
 ## Questions?
 
-If you have questions about using Mistral Vibe, please check the [README](README.md) first. For other inquiries, feel free to open a discussion or issue.
+If you have questions about using Vibe Fork, please check the [README](README.md) first. For other inquiries, feel free to open a discussion or issue.
 
-Thank you for helping make Mistral Vibe better!
+Thank you for helping make Vibe Fork better!

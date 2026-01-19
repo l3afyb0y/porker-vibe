@@ -60,6 +60,7 @@ venv.bak/
 .ruff_cache/
 
 # Project specific
+.vibe/
 .vibe/*
 scripts/.vibe/
 !.vibe/tools/
@@ -82,3 +83,6 @@ coverage.xml
 *.cover
 *.py.cover
 .hypothesis/
+pub/
+.bin/
+

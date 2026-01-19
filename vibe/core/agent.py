@@ -135,7 +135,11 @@ class Agent:
         self._setup_middleware()
 
         system_prompt = get_universal_system_prompt(
-            self.tool_manager, config, plan_manager=self.plan_manager, skill_manager=self.skill_manager
+            self.tool_manager,
+            config,
+            plan_manager=self.plan_manager,
+            todo_manager=self.todo_manager,
+            skill_manager=self.skill_manager,
         )
         self.messages = [LLMMessage(role=Role.system, content=system_prompt)]
 
@@ -199,7 +203,7 @@ class Agent:
         """Inject managers into tools that need them."""
         try:
             # Inject todo_manager into TodoWrite tool
-            todo_tool = self.tool_manager.get("TodoWrite")
+            todo_tool = self.tool_manager.get("todo_write")
             todo_tool._todo_manager = self.todo_manager
         except Exception:
             # TodoWrite tool might not be available, that's okay
@@ -207,7 +211,7 @@ class Agent:
 
         try:
             # Inject plan_document_manager into PlanSync tool
-            plan_sync_tool = self.tool_manager.get("PlanSync")
+            plan_sync_tool = self.tool_manager.get("plan_sync")
             plan_sync_tool._plan_document_manager = self.plan_document_manager
         except Exception:
             # PlanSync tool might not be available, that's okay
@@ -265,6 +269,8 @@ class Agent:
                 )
 
                 summary = await self.compact()
+                if summary is None:
+                    summary = ""
 
                 yield CompactEndEvent(
                     old_context_tokens=old_tokens,
@@ -595,6 +601,67 @@ class Agent:
                 )
                 continue
 
+            except Exception as exc:
+                # Catch any other unexpected exceptions during tool execution
+                import traceback
+                import sys
+                from datetime import datetime
+                from pathlib import Path
+
+                # Log to error.log with full traceback - always in ~/.vibe
+                error_log_path = Path.home() / ".vibe" / "error.log"
+                log_success = False
+
+                try:
+                    error_log_path.parent.mkdir(parents=True, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    with open(error_log_path, "a", encoding="utf-8") as f:
+                        f.write(f"\n{'='*80}\n")
+                        f.write(f"[{timestamp}] Tool Execution Error: {tool_call.tool_name}\n")
+                        f.write(f"{'='*80}\n")
+                        f.write(f"Error Type: {type(exc).__name__}\n")
+                        f.write(f"Error Message: {str(exc)}\n")
+                        f.write(f"Tool: {tool_call.tool_name}\n")
+                        f.write(f"Tool Args: {tool_call.args_dict}\n")
+                        f.write(f"\nTraceback:\n")
+                        f.write(traceback.format_exc())
+                        f.write(f"\n{'='*80}\n")
+                        f.flush()  # Ensure it's written
+                    log_success = True
+                except Exception as log_err:
+                    # If logging to ~/.vibe/error.log fails, try stderr
+                    try:
+                        sys.stderr.write(f"\n[VIBE ERROR LOGGER FAILED]\n")
+                        sys.stderr.write(f"Original error: {type(exc).__name__}: {exc}\n")
+                        sys.stderr.write(f"Logging error: {type(log_err).__name__}: {log_err}\n")
+                        sys.stderr.write(f"Attempted log path: {error_log_path}\n")
+                        sys.stderr.write(traceback.format_exc())
+                        sys.stderr.flush()
+                    except Exception:
+                        pass  # Truly nothing we can do
+
+                if log_success:
+                    error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\nSee ~/.vibe/error.log for full traceback</{TOOL_ERROR_TAG}>"
+                else:
+                    error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\n(Error logging failed - check terminal output)</{TOOL_ERROR_TAG}>"
+
+                yield ToolResultEvent(
+                    tool_name=tool_call.tool_name,
+                    tool_class=tool_call.tool_class,
+                    error=error_msg,
+                    tool_call_id=tool_call_id,
+                )
+
+                self.stats.tool_calls_failed += 1
+                self.messages.append(
+                    LLMMessage.model_validate(
+                        self.format_handler.create_tool_response_message(
+                            tool_call, error_msg
+                        )
+                    )
+                )
+                continue
+
     async def _chat(self, max_tokens: int | None = None) -> LLMChunk:
         active_model = self.config.get_active_model()
         provider = self.config.get_provider_for_model(active_model)
@@ -766,7 +833,7 @@ class Agent:
         while i < len(self.messages):  # noqa: PLR1702
             msg = self.messages[i]
 
-            if msg.role == "assistant" and msg.tool_calls:
+            if msg.role == "assistant" and msg.tool_calls is not None:
                 expected_responses = len(msg.tool_calls)
 
                 if expected_responses > 0:
@@ -781,6 +848,8 @@ class Agent:
 
                         for call_idx in range(actual_responses, expected_responses):
                             tool_call_data = msg.tool_calls[call_idx]
+                            if tool_call_data is None:
+                                continue
 
                             empty_response = LLMMessage(
                                 role=Role.tool,
@@ -938,8 +1007,15 @@ class Agent:
         self.tool_manager = ToolManager(lambda: self.config)
         self.skill_manager = SkillManager(lambda: self.config)
 
+        # Re-inject managers into tools after re-creating tool_manager
+        self._inject_todo_manager_into_tool()
+
         new_system_prompt = get_universal_system_prompt(
-            self.tool_manager, self.config, plan_manager=self.plan_manager, skill_manager=self.skill_manager
+            self.tool_manager,
+            self.config,
+            plan_manager=self.plan_manager,
+            todo_manager=self.todo_manager,
+            skill_manager=self.skill_manager,
         )
         self.messages = [LLMMessage(role=Role.system, content=new_system_prompt)]
 

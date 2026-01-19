@@ -8,6 +8,10 @@ import subprocess
 
 import time
 
+import traceback
+from datetime import datetime
+from pathlib import Path
+
 from typing import Any, ClassVar, assert_never, List, Dict
 from collections.abc import Callable
 
@@ -172,10 +176,31 @@ class VibeApp(App):  # noqa: PLR0904
         self._ui_update_batch: list[Callable[[], None]] = []  # Batch UI updates
         self._batch_update_scheduled = False
 
+        # Set up error log file - always in ~/.vibe
+        self._error_log_path = Path.home() / ".vibe" / "error.log"
+
 
     @property
     def config(self) -> VibeConfig:
         return self.agent.config if self.agent else self._config
+
+    def log_error(self, error: Exception, context: str = "") -> None:
+        """Log error with full traceback to file."""
+        try:
+            self._error_log_path.parent.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(self._error_log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"[{timestamp}] Error in {context}\n")
+                f.write(f"{'='*80}\n")
+                f.write(f"Error Type: {type(error).__name__}\n")
+                f.write(f"Error Message: {str(error)}\n")
+                f.write(f"\nTraceback:\n")
+                f.write(traceback.format_exc())
+                f.write(f"\n{'='*80}\n")
+        except Exception:
+            # If logging fails, don't crash the app
+            pass
 
     def compose(self) -> ComposeResult:
         with Vertical(id="app-container"):
@@ -262,6 +287,7 @@ class VibeApp(App):  # noqa: PLR0904
         self.event_handler = EventHandler(
             mount_callback=self._mount_and_scroll,
             scroll_callback=self._scroll_to_bottom_deferred,
+            todo_update_callback=lambda: self.query_one(TodoWidget).update_todos(),
 
             get_tools_collapsed=lambda: self._tools_collapsed,
             get_todos_collapsed=lambda: self._todos_collapsed,
@@ -828,11 +854,12 @@ class VibeApp(App):  # noqa: PLR0904
             self._loading_widget = None
 
             await self._finalize_current_streaming_message()
-            
+
             try:
                 await self.query_one(TodoWidget).update_todos()
-            except Exception:
-                pass
+            except Exception as e:
+                self.log_error(e, "TodoWidget.update_todos() after agent turn")
+                # Don't show error in TUI here as it's not critical
 
     async def _interrupt_agent(self) -> None:
         interrupting_agent_init = bool(
