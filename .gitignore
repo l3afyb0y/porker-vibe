@@ -423,3 +423,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Gemini
+.gemini/

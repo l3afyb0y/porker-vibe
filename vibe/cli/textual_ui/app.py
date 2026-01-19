@@ -178,40 +178,41 @@ class VibeApp(App):  # noqa: PLR0904
         return self.agent.config if self.agent else self._config
 
     def compose(self) -> ComposeResult:
-        # 1. History container (takes remaining space)
-        with Vertical(id="history-container"):
-            with VerticalScroll(id="chat"):
-                if not self._loaded_messages:
-                    yield WelcomeBanner(self.config)
-                yield Vertical(id="messages")
-                with Horizontal(id="loading-area"):
-                    yield Static(id="loading-area-content")
+        with Horizontal(id="screen-body"):
+            # 1. Todo list side panel (left)
+            yield TodoWidget(
+                self._plan_manager,
+                self._todo_manager,
+                collaborative_integration=self._collaborative_integration,
+                collapsed=self._todos_collapsed,
+            )
+
+            # 2. Main area (right) - Chat history and Input
+            with Vertical(id="main-container"):
+                with VerticalScroll(id="chat"):
+                    if not self._loaded_messages:
+                        yield WelcomeBanner(self.config)
+                    yield Vertical(id="messages")
+                    with Horizontal(id="loading-area"):
+                        yield Static(id="loading-area-content")
+
+                # Input panel (anchored at the bottom of main-container)
+                with Vertical(id="input-panel"):
                     yield ModeIndicator(mode=self._current_agent_mode)
-            
-        # Todo list floats over the history area
-        yield TodoWidget(
-            self._plan_manager,
-            self._todo_manager,
-            collaborative_integration=self._collaborative_integration,
-            collapsed=self._todos_collapsed,
-        )
+                    with Static(id="bottom-app-container"):
+                        yield ChatInputContainer(
+                            history_file=self.history_file,
+                            command_registry=self.commands,
+                            id="input-container",
+                            safety=self._current_agent_mode.safety,
+                        )
 
-        # 2. Input panel (anchored at the bottom)
-        with Vertical(id="input-panel"):
-            with Static(id="bottom-app-container"):
-                yield ChatInputContainer(
-                    history_file=self.history_file,
-                    command_registry=self.commands,
-                    id="input-container",
-                    safety=self._current_agent_mode.safety,
-                )
-
-            with Horizontal(id="bottom-bar"):
-                yield PathDisplay(
-                    self.config.displayed_workdir or self.config.effective_workdir
-                )
-                yield NoMarkupStatic(id="spacer")
-                yield ContextProgress()
+                    with Horizontal(id="bottom-bar"):
+                        yield PathDisplay(
+                            self.config.displayed_workdir or self.config.effective_workdir
+                        )
+                        yield NoMarkupStatic(id="spacer")
+                        yield ContextProgress()
 
     def _batch_ui_update(self, update_func: Callable[[], None]) -> None:
         """Add UI update to batch for performance optimization."""
