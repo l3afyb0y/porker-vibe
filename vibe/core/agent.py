@@ -99,7 +99,7 @@ class Agent:
     def __init__(
         self,
         config: VibeConfig,
-        plan_manager: PlanManager,
+        plan_manager: PlanManager | None = None,
         mode: AgentMode = AgentMode.DEFAULT,
         message_observer: Callable[[LLMMessage], None] | None = None,
         max_turns: int | None = None,
@@ -110,9 +110,11 @@ class Agent:
     ) -> None:
         """Initialize the agent with configuration and mode."""
         self.config = config
-        self.plan_manager = plan_manager
+        self.plan_manager = plan_manager or PlanManager(config.effective_workdir)
         self.plan_document_manager = PlanDocumentManager(config.effective_workdir)
-        self.auto_task_tracking_middleware = AutoTaskTrackingMiddleware(plan_manager)
+        self.auto_task_tracking_middleware = AutoTaskTrackingMiddleware(
+            self.plan_manager
+        )
         self._current_plan_item_id: UUID | None = None
         self._mode = mode
         self._max_turns = max_turns

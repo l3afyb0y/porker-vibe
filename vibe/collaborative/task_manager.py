@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import threading
 import uuid
 
 from vibe.core.paths.global_paths import VIBE_HOME
@@ -52,6 +53,8 @@ class ModelRole(Enum):
 
     PLANNER = "devstral-2"
     IMPLEMENTER = "deepseek-coder-v2"
+    REVIEWER = "qwq"
+    DOCS = "llama3.2"
 
 
 @dataclass
@@ -78,6 +81,7 @@ class TaskManager:
         self.task_queue: list[str] = []
         self.completed_tasks: list[str] = []
         self.task_history_file = self._get_storage_path()
+        self._lock = threading.RLock()
 
         # Load existing tasks if any
         self._load_tasks()
@@ -134,26 +138,27 @@ class TaskManager:
 
     def _save_tasks(self) -> None:
         """Save tasks to persistent storage."""
-        task_data = {}
-        for task_id, task in self.tasks.items():
-            task_data[task_id] = {
-                "task_type": task.task_type.name,
-                "description": task.description,
-                "priority": task.priority,
-                "status": task.status.name,
-                "assigned_to": task.assigned_to.value if task.assigned_to else None,
-                "created_at": task.created_at.isoformat(),
-                "updated_at": task.updated_at.isoformat(),
-                "dependencies": task.dependencies,
-            }
+        with self._lock:  # Ensure no other thread is writing
+            task_data = {}
+            for task_id, task in self.tasks.items():
+                task_data[task_id] = {
+                    "task_type": task.task_type.name,
+                    "description": task.description,
+                    "priority": task.priority,
+                    "status": task.status.name,
+                    "assigned_to": task.assigned_to.value if task.assigned_to else None,
+                    "created_at": task.created_at.isoformat(),
+                    "updated_at": task.updated_at.isoformat(),
+                    "dependencies": task.dependencies,
+                }
 
-        try:  # Added try-except block
-            with open(self.task_history_file, "w") as f:
-                json.dump(task_data, f, indent=2)
-        except OSError as e:
-            logger.warning(
-                "Could not save tasks to %s: %s", self.task_history_file, e
-            )  # Log error
+            try:
+                with open(self.task_history_file, "w") as f:
+                    json.dump(task_data, f, indent=2)
+            except OSError as e:
+                logger.warning(
+                    "Could not save tasks to %s: %s", self.task_history_file, e
+                )
 
     def create_task(
         self,
@@ -173,9 +178,10 @@ class TaskManager:
             dependencies=dependencies or [],
         )
 
-        self.tasks[task_id] = task
-        self.task_queue.append(task_id)
-        self._save_tasks()
+        with self._lock:
+            self.tasks[task_id] = task
+            self.task_queue.append(task_id)
+            self._save_tasks()
 
         return task_id
 
@@ -184,49 +190,85 @@ class TaskManager:
         if task_id not in self.tasks:
             raise ValueError(f"Task {task_id} not found")
 
-        task = self.tasks[task_id]
-        task.assigned_to = model_role
-        task.status = TaskStatus.ASSIGNED
-        task.updated_at = datetime.now()
-        self._save_tasks()
+        with self._lock:
+            task = self.tasks[task_id]
+            task.assigned_to = model_role
+            task.status = TaskStatus.ASSIGNED
+            task.updated_at = datetime.now()
+            self._save_tasks()
 
     def complete_task(self, task_id: str) -> None:
         """Mark a task as completed."""
         if task_id not in self.tasks:
             raise ValueError(f"Task {task_id} not found")
 
-        task = self.tasks[task_id]
-        task.status = TaskStatus.COMPLETED
-        task.updated_at = datetime.now()
+        with self._lock:
+            task = self.tasks[task_id]
+            task.status = TaskStatus.COMPLETED
+            task.updated_at = datetime.now()
 
-        if task_id in self.task_queue:
-            self.task_queue.remove(task_id)
-        self.completed_tasks.append(task_id)
-        self._save_tasks()
+            if task_id in self.task_queue:
+                self.task_queue.remove(task_id)
+            self.completed_tasks.append(task_id)
+            self._save_tasks()
 
     def get_next_task(self) -> tuple[str, CollaborativeTask] | None:
         """Get the next available task from the queue whose dependencies are met."""
-        if not self.task_queue:
-            return None
+        with self._lock:
+            if not self.task_queue:
+                return None
 
-        # Sort by priority (lower numbers = higher priority)
-        self.task_queue.sort(key=lambda tid: self.tasks[tid].priority)
+            # Sort by priority (lower numbers = higher priority)
+            self.task_queue.sort(key=lambda tid: self.tasks[tid].priority)
 
-        for task_id in list(
-            self.task_queue
-        ):  # Iterate over a copy to allow modification
-            if self._is_task_blocked(task_id):
+            for task_id in list(
+                self.task_queue
+            ):  # Iterate over a copy to allow modification
+                if self._is_task_blocked(task_id):
+                    task = self.tasks[task_id]
+                    if (
+                        task.status != TaskStatus.BLOCKED
+                    ):  # Only update if status changed
+                        task.status = TaskStatus.BLOCKED
+                        task.updated_at = datetime.now()
+                        self._save_tasks()
+                    continue
+
+                # If not blocked, this is the next available task
+                return task_id, self.tasks[task_id]
+
+            return None  # No unblocked tasks found
+
+    def get_next_task_for_model(
+        self, model_role: ModelRole
+    ) -> tuple[str, CollaborativeTask] | None:
+        """Get the next available task specifically for a given model role."""
+        with self._lock:
+            if not self.task_queue:
+                return None
+
+            # Sort by priority
+            self.task_queue.sort(key=lambda tid: self.tasks[tid].priority)
+
+            for task_id in list(self.task_queue):
+                # Check if assigned to this model (or not assigned yet but matches rules - but auto_assign handles that)
+                # We strictly look for tasks already assigned to this role
                 task = self.tasks[task_id]
-                if task.status != TaskStatus.BLOCKED:  # Only update if status changed
-                    task.status = TaskStatus.BLOCKED
-                    task.updated_at = datetime.now()
-                    self._save_tasks()
-                continue
 
-            # If not blocked, this is the next available task
-            return task_id, self.tasks[task_id]
+                if task.assigned_to != model_role:
+                    continue
 
-        return None  # No unblocked tasks found
+                if self._is_task_blocked(task_id):
+                    if task.status != TaskStatus.BLOCKED:
+                        task.status = TaskStatus.BLOCKED
+                        task.updated_at = datetime.now()
+                        self._save_tasks()
+                    continue
+
+                # Found a valid task for this model
+                return task_id, task
+
+            return None
 
     def _is_task_blocked(self, task_id: str) -> bool:
         """Check if a task is blocked by uncompleted dependencies."""
@@ -264,34 +306,42 @@ class TaskManager:
         task_assignment_rules = {
             TaskType.PLANNING: ModelRole.PLANNER,
             TaskType.ARCHITECTURE: ModelRole.PLANNER,
-            TaskType.CODE_REVIEW: ModelRole.PLANNER,
+            TaskType.CODE_REVIEW: ModelRole.REVIEWER,
             TaskType.CODE_IMPLEMENTATION: ModelRole.IMPLEMENTER,
-            TaskType.DOCUMENTATION: ModelRole.IMPLEMENTER,
+            TaskType.DOCUMENTATION: ModelRole.DOCS,
             TaskType.REFACTORING: ModelRole.IMPLEMENTER,
             TaskType.TESTING: ModelRole.IMPLEMENTER,
             TaskType.MAINTENANCE: ModelRole.IMPLEMENTER,
-            TaskType.REPOSITORY_HYGIENE: ModelRole.IMPLEMENTER,
+            TaskType.REPOSITORY_HYGIENE: ModelRole.DOCS,
         }
 
-        for task_id, task in self.tasks.items():
-            if task.status == TaskStatus.PENDING and task_id in self.task_queue:
-                assigned_role = task_assignment_rules.get(task.task_type)
-                if assigned_role:
-                    self.assign_task(task_id, assigned_role)
+        with (
+            self._lock
+        ):  # Lock the whole operation to prevent race conditions during assignment
+            for task_id, task in self.tasks.items():
+                if task.status == TaskStatus.PENDING and task_id in self.task_queue:
+                    assigned_role = task_assignment_rules.get(task.task_type)
+                    if assigned_role:
+                        task.assigned_to = assigned_role
+                        task.status = TaskStatus.ASSIGNED
+                        task.updated_at = datetime.now()
+            self._save_tasks()
 
     def set_task_dependencies(self, task_id: str, dependencies: list[str]) -> None:
         """Set canonical dependencies for an existing task."""
         if task_id not in self.tasks:
             raise ValueError(f"Task {task_id} not found")
 
-        task = self.tasks[task_id]
-        task.dependencies = dependencies
-        task.updated_at = datetime.now()
-        self._save_tasks()
+        with self._lock:
+            task = self.tasks[task_id]
+            task.dependencies = dependencies
+            task.updated_at = datetime.now()
+            self._save_tasks()
 
     def clear_all_tasks(self) -> None:
         """Clear all tasks from the manager."""
-        self.tasks.clear()
-        self.task_queue.clear()
-        self.completed_tasks.clear()
-        self._save_tasks()
+        with self._lock:
+            self.tasks.clear()
+            self.task_queue.clear()
+            self.completed_tasks.clear()
+            self._save_tasks()

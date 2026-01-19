@@ -249,6 +249,8 @@ def _execute_programmatic_mode(
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+
+def run_cli(args: argparse.Namespace) -> None:
     load_api_keys_from_env()
 
     if args.setup:

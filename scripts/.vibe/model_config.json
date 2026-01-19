@@ -8,5 +8,15 @@
     "model_name": "deepseek-coder-v2:latest",
     "endpoint": "http://localhost:11434/api/generate",
     "api_key": null
+  },
+  "qwq": {
+    "model_name": "qwq:latest",
+    "endpoint": "http://localhost:11434/api/generate",
+    "api_key": null
+  },
+  "llama3.2": {
+    "model_name": "llama3.2:latest",
+    "endpoint": "http://localhost:11434/api/generate",
+    "api_key": null
   }
 }

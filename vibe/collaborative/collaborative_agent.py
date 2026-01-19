@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from logging import getLogger
 from pathlib import Path
+import threading
 from typing import Any
 
 from vibe.collaborative.model_coordinator import ModelCoordinator
@@ -32,6 +33,10 @@ class CollaborativeAgent:
         # Initialize project metadata
         self._metadata_file = self._get_metadata_path()
         self.project_metadata = self._load_project_metadata()
+
+        # Parallel execution state
+        self.active_background_tasks: dict[str, threading.Thread] = {}
+        self.background_results: list[dict[str, Any]] = []
 
     def _get_metadata_path(self) -> Path:
         """Get the centralized path for project metadata."""
@@ -92,18 +97,109 @@ class CollaborativeAgent:
         }
 
     def execute_next_task(self) -> dict[str, Any]:
-        """Execute the next task in the collaborative workflow."""
-        task_id, result = self.model_coordinator.execute_next_task()
+        """Execute the next task in the collaborative workflow.
 
-        if task_id is None:
-            return {"status": "no_tasks", "message": result or "No tasks available"}
+        Supports parallel execution:
+        - Planner tasks run synchronously in the main thread.
+        - Local tasks (Implementer/Reviewer/Docs) run in background threads.
+        """
+        self._cleanup_background_tasks()
 
-        return {
-            "status": "completed",
-            "task_id": task_id,
-            "result": result,
-            "project_status": self.get_project_status(),
-        }
+        # 1. Try to start a background task if slot is available
+        background_msg = ""
+        # Limit to 1 background local model to prevent OOM
+        if len(self.active_background_tasks) < 1:
+            local_roles = [ModelRole.IMPLEMENTER, ModelRole.REVIEWER, ModelRole.DOCS]
+            for role in local_roles:
+                local_task_info = self.task_manager.get_next_task_for_model(role)
+                if local_task_info:
+                    task_id, task = local_task_info
+
+                    # Start background thread
+                    thread = threading.Thread(
+                        target=self._run_background_task,
+                        args=(task_id,),
+                        name=f"vibe-bg-{task_id}",
+                    )
+                    thread.start()
+                    self.active_background_tasks[task_id] = thread
+                    background_msg = f"Started background task {task_id} ({task.task_type.name}) assigned to {role.value}."
+                    break
+
+        # 2. Try to run a Planner task in the foreground
+        planner_task_info = self.task_manager.get_next_task_for_model(ModelRole.PLANNER)
+
+        if planner_task_info:
+            task_id, task = planner_task_info
+            # Run synchronously
+            tid, result = self.model_coordinator.execute_task(task_id)
+
+            message = f"Executed Planner task {tid}."
+            if background_msg:
+                message += f" {background_msg}"
+
+            return {
+                "status": "completed",
+                "task_id": tid,
+                "result": result,
+                "message": message,
+                "project_status": self.get_project_status(),
+            }
+
+        # 3. If no planner task, check if we started a background task or have pending results
+        if background_msg:
+            return {
+                "status": "background_task_started",
+                "message": background_msg,
+                "project_status": self.get_project_status(),
+            }
+
+        if self.background_results:
+            # Return one of the collected background results
+            result = self.background_results.pop(0)
+            return result
+
+        if self.active_background_tasks:
+            return {
+                "status": "waiting",
+                "message": "Waiting for background tasks to complete...",
+                "project_status": self.get_project_status(),
+            }
+
+        return {"status": "no_tasks", "message": "No tasks available"}
+
+    def _run_background_task(self, task_id: str) -> None:
+        """Run a task in a background thread."""
+        try:
+            tid, result = self.model_coordinator.execute_task(task_id)
+
+            self.background_results.append({
+                "status": "completed",
+                "task_id": tid,
+                "result": result,
+                "message": f"Background task {tid} completed.",
+                "project_status": self.get_project_status(),
+            })
+        except Exception as e:
+            logger.error(f"Background task {task_id} failed: {e}")
+            self.background_results.append({
+                "status": "error",
+                "task_id": task_id,
+                "result": str(e),
+                "message": f"Background task {task_id} failed.",
+                "project_status": self.get_project_status(),
+            })
+
+    def _cleanup_background_tasks(self) -> None:
+        """Remove finished threads from tracking."""
+        finished_ids = []
+        for tid, thread in self.active_background_tasks.items():
+            if not thread.is_alive():
+                finished_ids.append(tid)
+                thread.join()  # Ensure cleanup
+
+        for tid in finished_ids:
+            del self.active_background_tasks[tid]
 
     def execute_all_tasks(self) -> dict[str, Any]:
         """Execute all pending tasks in the workflow."""

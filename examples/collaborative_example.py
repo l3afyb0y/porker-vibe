@@ -8,9 +8,8 @@ from vibe.collaborative.task_manager import TaskType
 
 def main() -> None:
     # Initialize the collaborative agent
-    project_root = Path(
-        "/home/rowen/github-branches/vibe/mistral-vibe/examples/test_project"
-    )
+    project_root = Path.cwd() / "examples" / "test_project"
+    project_root.parent.mkdir(parents=True, exist_ok=True)
     project_root.mkdir(exist_ok=True)
 
     agent = CollaborativeAgent(project_root)

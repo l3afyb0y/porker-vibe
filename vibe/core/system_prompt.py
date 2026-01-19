@@ -445,7 +445,7 @@ def _get_available_skills_section(skill_manager: SkillManager | None) -> str:
 def get_universal_system_prompt(
     tool_manager: ToolManager,
     config: VibeConfig,
-    plan_manager: PlanManager,
+    plan_manager: PlanManager | None = None,
     skill_manager: SkillManager | None = None,
 ) -> str:
     sections = [config.system_prompt]
@@ -481,9 +481,10 @@ def get_universal_system_prompt(
         if skills_section:
             sections.append(skills_section)
 
-        plan_context_section = _get_plan_context(plan_manager)
-        if plan_context_section:
-            sections.append(plan_context_section)
+        if plan_manager:
+            plan_context_section = _get_plan_context(plan_manager)
+            if plan_context_section:
+                sections.append(plan_context_section)
 
     if config.include_project_context:
         is_dangerous, reason = is_dangerous_directory()

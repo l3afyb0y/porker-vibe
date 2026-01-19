@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 from logging import getLogger
+import os
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,12 @@ from vibe.collaborative.ollama_detector import (
     check_ollama_availability,
     get_local_model_from_env,
     get_ollama_generate_endpoint,
+)
+from vibe.collaborative.prompts import (
+    DOCS_SYSTEM_PROMPT,
+    IMPLEMENTER_SYSTEM_PROMPT,
+    PLANNER_SYSTEM_PROMPT,
+    REVIEWER_SYSTEM_PROMPT,
 )
 from vibe.collaborative.task_manager import (
     CollaborativeTask,
@@ -88,6 +95,10 @@ class ModelCoordinator:
         # Use environment variable model if set, otherwise use default
         implementer_model = local_model if local_model else "deepseek-coder-v2"
 
+        # Load other roles from env or defaults
+        reviewer_model = os.getenv("VIBE_REVIEW_MODEL", "qwq")
+        docs_model = os.getenv("VIBE_DOCS_MODEL", "llama3.2")
+
         # Default configuration for local Ollama setup
         default_config = {
             ModelRole.PLANNER.value: {
@@ -97,6 +108,16 @@ class ModelCoordinator:
             },
             ModelRole.IMPLEMENTER.value: {
                 "model_name": implementer_model,
+                "endpoint": ollama_endpoint,
+                "api_key": None,
+            },
+            ModelRole.REVIEWER.value: {
+                "model_name": reviewer_model,
+                "endpoint": ollama_endpoint,
+                "api_key": None,
+            },
+            ModelRole.DOCS.value: {
+                "model_name": docs_model,
                 "endpoint": ollama_endpoint,
                 "api_key": None,
             },
@@ -146,7 +167,11 @@ class ModelCoordinator:
             logger.warning("Could not save model config to %s: %s", self.config_file, e)
 
     def query_model(
-        self, role: ModelRole, prompt: str, context: dict | None = None
+        self,
+        role: ModelRole,
+        prompt: str,
+        context: dict | None = None,
+        system_prompt: str | None = None,
     ) -> str:
         """Query a specific model with a prompt."""
         if role not in self.models:
@@ -164,11 +189,18 @@ class ModelCoordinator:
             }
             if context:
                 payload["context"] = context
+            if system_prompt:
+                payload["system"] = system_prompt
         else:
             # Generic LLM API format
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
             payload = {
                 "model": model_config.model_name,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "temperature": 0.7,
             }
 
@@ -281,7 +313,9 @@ Please provide the plan in JSON format with the following structure:
   "technical_considerations": "string"
 }}"""
 
-        plan_json = self.query_model(ModelRole.PLANNER, prompt)
+        plan_json = self.query_model(
+            ModelRole.PLANNER, prompt, system_prompt=PLANNER_SYSTEM_PROMPT
+        )
 
         return plan_json
 
@@ -340,12 +374,29 @@ Please provide the plan in JSON format with the following structure:
             return None, "No tasks available"
 
         task_id, task = task_result
+        return self.execute_task(task_id)
+
+    def execute_task(self, task_id: str) -> tuple[str, str]:
+        """Execute a specific task by ID."""
+        if task_id not in self.task_manager.tasks:
+            return task_id, f"Task {task_id} not found"
+
+        task = self.task_manager.tasks[task_id]
         task_output = None  # Initialize task_output
 
         # Set task status to IN_PROGRESS
-        self.task_manager.tasks[task_id].status = TaskStatus.IN_PROGRESS
-        self.task_manager.tasks[task_id].updated_at = datetime.now()
-        self.task_manager._save_tasks()  # Save updated status
+        # Use a lock-safe update if possible, but accessing task object directly
+        # and saving relies on TaskManager's internal lock now?
+        # No, TaskManager methods are locked, but direct property access isn't.
+        # We should use a method to update status or accept that we update the object and call _save_tasks (which is locked).
+        # But _save_tasks iterates *all* tasks. If we modify one here, and another thread modifies another one...
+        # Python dicts are thread-safe for single ops, but we need atomic update.
+        # Ideally TaskManager should expose update_task_status(tid, status).
+        # For now, let's assume single-writer per task due to assignment.
+
+        task.status = TaskStatus.IN_PROGRESS
+        task.updated_at = datetime.now()
+        self.task_manager._save_tasks()  # This is locked!
 
         try:
             if task.assigned_to == ModelRole.PLANNER:
@@ -354,6 +405,12 @@ Please provide the plan in JSON format with the following structure:
             elif task.assigned_to == ModelRole.IMPLEMENTER:
                 # Implementation task
                 task_output = self._execute_implementer_task(task)
+            elif task.assigned_to == ModelRole.REVIEWER:
+                # Review task
+                task_output = self._execute_reviewer_task(task)
+            elif task.assigned_to == ModelRole.DOCS:
+                # Documentation/Hygiene task
+                task_output = self._execute_docs_task(task)
             else:
                 raise ValueError("Task not assigned to any model")
 
@@ -380,12 +437,30 @@ Please provide the plan in JSON format with the following structure:
     def _execute_planner_task(self, task: CollaborativeTask) -> str:
         """Execute a task assigned to the planner model."""
         prompt = self._create_task_prompt(task)
-        return self.query_model(ModelRole.PLANNER, prompt)
+        return self.query_model(
+            ModelRole.PLANNER, prompt, system_prompt=PLANNER_SYSTEM_PROMPT
+        )
 
     def _execute_implementer_task(self, task: CollaborativeTask) -> str:
         """Execute a task assigned to the implementer model."""
         prompt = self._create_task_prompt(task)
-        return self.query_model(ModelRole.IMPLEMENTER, prompt)
+        return self.query_model(
+            ModelRole.IMPLEMENTER, prompt, system_prompt=IMPLEMENTER_SYSTEM_PROMPT
+        )
+
+    def _execute_reviewer_task(self, task: CollaborativeTask) -> str:
+        """Execute a task assigned to the reviewer model."""
+        prompt = self._create_task_prompt(task)
+        return self.query_model(
+            ModelRole.REVIEWER, prompt, system_prompt=REVIEWER_SYSTEM_PROMPT
+        )
+
+    def _execute_docs_task(self, task: CollaborativeTask) -> str:
+        """Execute a task assigned to the docs model."""
+        prompt = self._create_task_prompt(task)
+        return self.query_model(
+            ModelRole.DOCS, prompt, system_prompt=DOCS_SYSTEM_PROMPT
+        )
 
     def _create_task_prompt(self, task: CollaborativeTask) -> str:
         """Create a prompt for executing a specific task."""
@@ -447,11 +522,18 @@ Priority: {task.priority}
         This allows dynamic reconfiguration when VIBE_LOCAL_MODEL changes.
         """
         local_model = get_local_model_from_env()
+        ollama_endpoint = get_ollama_generate_endpoint()
+
         if local_model:
-            ollama_endpoint = get_ollama_generate_endpoint()
             self.update_model_config(
                 ModelRole.IMPLEMENTER, local_model, ollama_endpoint
             )
+
+        if review_model := os.getenv("VIBE_REVIEW_MODEL"):
+            self.update_model_config(ModelRole.REVIEWER, review_model, ollama_endpoint)
+
+        if docs_model := os.getenv("VIBE_DOCS_MODEL"):
+            self.update_model_config(ModelRole.DOCS, docs_model, ollama_endpoint)
 
     def get_implementer_model_info(self) -> dict[str, object]:
         """Get information about the implementer model configuration."""

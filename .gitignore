@@ -91,3 +91,4 @@ pub/
 .github
 distribution
 vibe-debug.log
+test_project
