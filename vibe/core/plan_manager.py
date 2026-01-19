@@ -96,6 +96,7 @@ class PlanManager:
             item.status = new_status
             item.updated_at = time.time()
             self.save_plan()
+            self._sync_plan_to_markdown()
             # Optionally, update parent status if all children are complete
             self._update_parent_status(item_id)
             return True
@@ -255,3 +256,40 @@ class PlanManager:
             self.save_plan()
             return subtask
         return None
+
+    def _get_updated_line_status(self, line: str) -> str:
+        """Helper to determine the updated checkbox status for a given line."""
+        if "[ ]" not in line and "[x]" not in line:
+            return line
+
+        if not self._agent_plan:
+            return line
+
+        for epic in self._agent_plan.epics:
+            if epic.name in line:
+                status_box = "[x]" if epic.status == ItemStatus.COMPLETED else "[ ]"
+                return line.replace("[ ]", status_box).replace("[x]", status_box)
+
+            for task in epic.tasks:
+                if task.name in line:
+                    status_box = "[x]" if task.status == ItemStatus.COMPLETED else "[ ]"
+                    return line.replace("[ ]", status_box).replace("[x]", status_box)
+        return line
+
+    def _sync_plan_to_markdown(self) -> None:
+        """Updates the dev/PLAN.md file to reflect the current plan state."""
+        plan_md_path = self.project_path / "dev" / "PLAN.md"
+        if not plan_md_path.exists() or not self._agent_plan:
+            return
+
+        try:
+            with plan_md_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            new_lines = [self._get_updated_line_status(line) for line in lines]
+
+            with plan_md_path.open("w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+        except Exception:
+            # Plan sync should not crash the main thread
+            pass

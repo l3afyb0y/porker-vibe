@@ -119,12 +119,12 @@ class VibeAcpAgent(AcpAgent):
                 AuthMethod(
                     id="vibe-setup",
                     name="Register your API Key",
-                    description="Register your API Key inside Mistral Vibe",
+                    description="Register your API Key inside Porker Vibe",
                     field_meta={
                         "terminal-auth": {
                             "command": command,
                             "args": args,
-                            "label": "Mistral Vibe Setup",
+                            "label": "Porker Vibe Setup",
                         }
                     },
                 )
@@ -142,9 +142,7 @@ class VibeAcpAgent(AcpAgent):
             ),
             protocolVersion=PROTOCOL_VERSION,
             agentInfo=Implementation(
-                name="@mistralai/mistral-vibe",
-                title="Mistral Vibe",
-                version=__version__,
+                name="@l3afyb0y/porker-vibe", title="Porker Vibe", version=__version__
             ),
             authMethods=auth_methods,
         )

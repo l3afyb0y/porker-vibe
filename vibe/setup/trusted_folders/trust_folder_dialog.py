@@ -58,7 +58,7 @@ class TrustFolderDialog(CenterMiddle):
                 classes="trust-dialog-path",
             )
             yield NoMarkupStatic(
-                "Files that can modify your Mistral Vibe setup were found here. Do you trust this folder?",
+                "Files that can modify your Porker Vibe setup were found here. Do you trust this folder?",
                 id="trust-dialog-message",
                 classes="trust-dialog-message",
             )

@@ -183,7 +183,7 @@ class CollaborativeVibeIntegration:
         return f"""
 ## COLLABORATIVE VIBE FORK - IMPORTANT CONTEXT
 
-You are running in a FORKED version of Mistral Vibe with collaborative multi-model support.
+You are running in a FORKED version of Porker Vibe with collaborative multi-model support.
 This is NOT the standard Vibe - it has been extended with a collaborative framework.
 
 ### How This Fork Works:

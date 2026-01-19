@@ -1,10 +1,10 @@
-# Contributing to Vibe Fork
+# Contributing to Porker Vibe
 
-Thank you for your interest in Vibe Fork! We appreciate your enthusiasm and support.
+Thank you for your interest in Porker Vibe! We appreciate your enthusiasm and support.
 
 ## Current Status
 
-**Vibe Fork is in active development** — we are iterating quickly and making changes under the hood to enhance the collaborative coding experience.
+**Porker Vibe is in active development** — we are iterating quickly and making changes under the hood to enhance the collaborative coding experience.
 
 **We especially encourage**:
 
@@ -51,8 +51,8 @@ This section is for developers who want to set up the repository for local devel
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/l3afyb0y/vibe.git
-   cd vibe
+   git clone https://github.com/l3afyb0y/porker-vibe.git
+   cd porker-vibe
    ```
 
 2. Install dependencies:
@@ -61,7 +61,7 @@ This section is for developers who want to set up the repository for local devel
    uv sync --all-extras
    ```
 
-   This will install both runtime and development dependencies.
+This will install both runtime and development dependencies.
 
 3. (Optional) Install pre-commit hooks:
 
@@ -69,7 +69,7 @@ This section is for developers who want to set up the repository for local devel
    uv run pre-commit install
    ```
 
-   Pre-commit hooks will automatically run checks before each commit.
+Pre-commit hooks will automatically run checks before each commit.
 
 ### Linting and Type Checking
 
@@ -135,6 +135,6 @@ See `pyproject.toml` for detailed configuration of Ruff and Pyright.
 
 ## Questions?
 
-If you have questions about using Vibe Fork, please check the [README](README.md) first. For other inquiries, feel free to open a discussion or issue.
+If you have questions about using Porker Vibe, please check the [README](README.md) first. For other inquiries, feel free to open a discussion or issue.
 
-Thank you for helping make Vibe Fork better!
+Thank you for helping make Porker Vibe better!

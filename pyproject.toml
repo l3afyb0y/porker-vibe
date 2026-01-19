@@ -1,62 +1,67 @@
 [project]
-name = "vibe-fork"
-version = "1.3.6"
-description = "A refined, collaborative coding framework forked from Mistral Vibe."
+name = "porker-vibe"
+version = "1.4.0"
+description = "A refined, collaborative coding framework."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Porker Roland", email = "gitporker@gmail.com" }]
+
+authors = [
+  { name = "Porker Roland", email = "gitporker@gmail.com" }
+]
+
 keywords = [
-    "ai",
-    "cli",
-    "coding-assistant",
-    "mistral",
-    "ollama",
-    "collaborative",
-    "llm",
-    "developer-tools",
+  "ai",
+  "cli",
+  "coding-assistant",
+  "mistral",
+  "ollama",
+  "collaborative",
+  "llm",
+  "developer-tools"
 ]
+
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Utilities",
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Utilities"
 ]
+
 dependencies = [
-    "agent-client-protocol==0.6.3",
-    "aiofiles>=24.1.0",
-    "httpx>=0.28.1",
-    "mcp>=1.14.0",
-    "mistralai==1.9.11",
-    "pexpect>=4.9.0",
-    "packaging>=24.1",
-    "pydantic>=2.12.4",
-    "pydantic-settings>=2.12.0",
-    "pyyaml>=6.0.0",
-    "python-dotenv>=1.0.0",
-    "requests>=2.31.0",
-    "rich>=14.0.0",
-    "textual>=1.0.0",
-    "tomli-w>=1.2.0",
-    "watchfiles>=1.1.1",
-    "pyperclip>=1.11.0",
-    "textual-speedups>=0.2.1",
-    "tree-sitter>=0.25.2",
-    "tree-sitter-bash>=0.25.1",
+  "agent-client-protocol==0.6.3",
+  "aiofiles>=24.1.0",
+  "httpx>=0.28.1",
+  "mcp>=1.14.0",
+  "mistralai==1.9.11",
+  "pexpect>=4.9.0",
+  "packaging>=24.1",
+  "pydantic>=2.12.4",
+  "pydantic-settings>=2.12.0",
+  "pyyaml>=6.0.0",
+  "python-dotenv>=1.0.0",
+  "requests>=2.31.0",
+  "rich>=14.0.0",
+  "textual>=1.0.0",
+  "tomli-w>=1.2.0",
+  "watchfiles>=1.1.1",
+  "pyperclip>=1.11.0",
+  "textual-speedups>=0.2.1",
+  "tree-sitter>=0.25.2",
+  "tree-sitter-bash>=0.25.1"
 ]
 
 [project.urls]
-Homepage = "https://github.com/l3afyb0y/vibe"
-Repository = "https://github.com/l3afyb0y/vibe"
-Issues = "https://github.com/l3afyb0y/vibe/issues"
-Documentation = "https://github.com/l3afyb0y/vibe#readme"
-
+Homepage = "https://github.com/l3afyb0y/porker-vibe"
+Repository = "https://github.com/l3afyb0y/porker-vibe"
+Issues = "https://github.com/l3afyb0y/porker-vibe/issues"
+Documentation = "https://github.com/l3afyb0y/porker-vibe#readme"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs", "editables"]
@@ -68,34 +73,33 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 include = ["vibe/"]
 
-
 [project.scripts]
 vibe = "vibe.cli.entrypoint:main"
 vibe-acp = "vibe.acp.entrypoint:main"
-
 
 [tool.uv]
 package = true
 required-version = ">=0.8.0"
 
-
 [dependency-groups]
 dev = [
-    "pre-commit>=4.2.0",
-    "pyright>=1.1.403",
-    "pytest>=8.3.5",
-    "pytest-asyncio>=1.2.0",
-    "pytest-timeout>=2.4.0",
-    "pytest-textual-snapshot>=1.1.0",
-    "respx>=0.22.0",
-    "ruff>=0.14.5",
-    "twine>=5.0.0",
-    "typos>=1.34.0",
-    "vulture>=2.14",
-    "pytest-xdist>=3.8.0",
+  "pre-commit>=4.2.0",
+  "pyright>=1.1.403",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=1.2.0",
+  "pytest-timeout>=2.4.0",
+  "pytest-textual-snapshot>=1.1.0",
+  "respx>=0.22.0",
+  "ruff>=0.14.5",
+  "twine>=5.0.0",
+  "typos>=1.34.0",
+  "vulture>=2.14",
+  "pytest-xdist>=3.8.0"
 ]
 
-build = ["pyinstaller>=6.17.0"]
+build = [
+  "pyinstaller>=6.17.0"
+]
 
 [tool.pyright]
 pythonVersion = "3.12"
@@ -116,21 +120,21 @@ skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
 select = [
-    "F",
-    "I",
-    "D2",
-    "UP",
-    "TID",
-    "ANN",
-    "PLR",
-    "B0",
-    "B905",
-    "DOC102",
-    "RUF022",
-    "RUF010",
-    "RUF012",
-    "RUF019",
-    "RUF100",
+  "F",
+  "I",
+  "D2",
+  "UP",
+  "TID",
+  "ANN",
+  "PLR",
+  "B0",
+  "B905",
+  "DOC102",
+  "RUF022",
+  "RUF010",
+  "RUF012",
+  "RUF019",
+  "RUF100"
 ]
 ignore = ["D203", "D205", "D213", "ANN401", "PLR6301"]
 

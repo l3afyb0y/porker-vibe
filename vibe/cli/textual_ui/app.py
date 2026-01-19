@@ -816,6 +816,24 @@ class VibeApp(App):  # noqa: PLR0904
         self._pending_approval = None
         return result
 
+    async def _show_context(self) -> None:
+        if not self.agent:
+            return
+
+        active_model = self.config.get_active_model()
+        context_size = active_model.context_size
+        current_tokens = self.agent.stats.context_tokens
+        usage_percent = (current_tokens / context_size) * 100 if context_size > 0 else 0
+
+        message = (
+            f"### Context Usage Status\n\n"
+            f"- **Active Model**: `{active_model.name}` (`{active_model.provider}`)\n"
+            f"- **Context Limit**: `{context_size:,}` tokens\n"
+            f"- **Current Usage**: `{current_tokens:,}` tokens ({usage_percent:.1f}%)\n"
+            f"- **Autocompact Threshold**: `{self.config.auto_compact_threshold * 100:.0f}%`\n"
+        )
+        await self._mount_and_scroll(UserCommandMessage(message))
+
     async def _handle_agent_turn(self, prompt: str) -> None:
         if not self.agent:
             return

@@ -460,3 +460,28 @@ class MiddlewarePipeline:
                 return result
 
         return MiddlewareResult()
+
+
+class DependencyHealingMiddleware:
+    """Detects ModuleNotFoundError in tool results and suggests uv sync."""
+
+    async def before_turn(self, context: ConversationContext) -> MiddlewareResult:
+        return MiddlewareResult()
+
+    async def after_turn(self, context: ConversationContext) -> MiddlewareResult:
+        for message in context.current_turn_messages:
+            if message.role == Role.tool and message.content:
+                if "ModuleNotFoundError" in message.content:
+                    suggestion = (
+                        f"<{VIBE_WARNING_TAG}>Dependency error detected! "
+                        "I might be missing some packages. "
+                        "You might want to run `uv sync --all-extras --dev` to ensure the environment is correctly set up.</{VIBE_WARNING_TAG}>"
+                    )
+                    return MiddlewareResult(
+                        action=MiddlewareAction.CONTINUE,
+                        metadata={"suggestion": suggestion},
+                    )
+        return MiddlewareResult()
+
+    def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
+        pass

@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+
+# Booster for standalone execution from IDE runners
+if __name__ == "__main__" and __package__ is None:
+    path = Path(__file__).resolve()
+    sys.path.insert(0, str(path.parents[4]))
 
 from acp import ReadTextFileRequest, WriteTextFileRequest
 from acp.helpers import SessionUpdate

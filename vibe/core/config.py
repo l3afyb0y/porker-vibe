@@ -281,7 +281,7 @@ class VibeConfig(BaseSettings):
     disable_welcome_banner_animation: bool = False
     displayed_workdir: str = ""
     auto_compact_threshold: float = 0.35
-    autocompact_enabled: bool = Field(default=False)
+    autocompact_enabled: bool = Field(default=True)
     context_warnings: bool = False
     instructions: str = ""
     workdir: Path | None = Field(default=None, exclude=True)

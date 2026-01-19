@@ -19,6 +19,7 @@ from vibe.core.middleware import (
     AutoCompactMiddleware,
     AutoTaskTrackingMiddleware,
     ConversationContext,
+    DependencyHealingMiddleware,
     LoopDetectionMiddleware,
     MiddlewareAction,
     MiddlewarePipeline,
@@ -234,6 +235,8 @@ class Agent:
         self.middleware_pipeline.add(self.auto_task_tracking_middleware)
         self.middleware_pipeline.add(AutoCompactMiddleware(lambda: self._mode))
         self.middleware_pipeline.add(LoopDetectionMiddleware())
+        self.middleware_pipeline.add(DependencyHealingMiddleware())
+        self.middleware_pipeline.add(DependencyHealingMiddleware())
 
     async def _handle_middleware_result(
         self, result: MiddlewareResult
@@ -306,7 +309,21 @@ class Agent:
                 current_turn_message_content = user_msg  # Start with the user's message
                 self._current_plan_item_id = None  # Reset for each turn
 
+                # 1. Check for next actionable item in structured plan
                 next_item = self.plan_manager.get_next_actionable_item()
+
+                # 2. If no structured item, check for pending items in todos.md
+                todo_instruction = None
+                if not next_item:
+                    pending_todo = self._get_next_pending_todo()
+                    if pending_todo:
+                        todo_instruction = (
+                            f"The current todo list contains a pending task: {pending_todo}. "
+                            "Please perform this task. If it requires tools, use them. "
+                            "Once completed, update the todo list status to [x] using `todo_write`. "
+                            "IMPORTANT: Function in an autonomous loop until ALL todos are finished."
+                        )
+
                 if next_item and next_item.status == ItemStatus.PENDING:
                     self._current_plan_item_id = next_item.id
                     self.plan_manager.update_item_status(
@@ -320,9 +337,9 @@ class Agent:
                         "IMPORTANT: Focus solely on completing this plan item. "
                         f"Your response to the original user message '{user_msg}' should be a brief acknowledgment that you are working on the plan item."
                     )
-                    current_turn_message_content = (
-                        plan_instruction  # This becomes the user message for this turn
-                    )
+                    current_turn_message_content = plan_instruction
+                elif todo_instruction:
+                    current_turn_message_content = todo_instruction
 
                 self.messages.append(
                     LLMMessage(role=Role.user, content=current_turn_message_content)
@@ -336,14 +353,18 @@ class Agent:
 
                 last_message = self.messages[-1]
 
-                # Check if there are more actionable items in the plan
+                # Check if there are more actionable items in the plan or todo list
                 next_item_available = (
                     self.plan_manager.get_next_actionable_item() is not None
+                    or self._get_next_pending_todo() is not None
                 )
 
                 # Stay in loop if we just executed a tool or if there's more work in the plan
+                # If auto_approve is enabled, we also want to continue autonomously for plan/todo items
                 should_break_loop = (
-                    last_message.role != Role.tool and not next_item_available
+                    last_message.role != Role.tool
+                    and not (self.auto_approve and next_item_available)
+                    and not next_item_available
                 )
 
                 self._flush_new_messages()
@@ -627,10 +648,22 @@ class Agent:
         error_log_path = Path.home() / ".vibe" / "error.log"
         log_success = self._log_error_to_file(error_log_path, tool_call, exc)
 
+        import traceback
+
+        tb = traceback.format_exc()
+
         if log_success:
-            error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\nSee ~/.vibe/error.log for full traceback</{TOOL_ERROR_TAG}>"
+            error_msg = (
+                f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\n"
+                f"FULL TRACEBACK:\n{tb}\n\n"
+                f"See ~/.vibe/error.log for persistent logs.</{TOOL_ERROR_TAG}>"
+            )
         else:
-            error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\n(Error logging failed - check terminal output)</{TOOL_ERROR_TAG}>"
+            error_msg = (
+                f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\n"
+                f"FULL TRACEBACK:\n{tb}\n\n"
+                f"(Error logging failed - check terminal output)</{TOOL_ERROR_TAG}>"
+            )
 
         self.stats.tool_calls_failed += 1
         self.messages.append(
@@ -1067,3 +1100,22 @@ class Agent:
         await self.interaction_logger.save_interaction(
             self.messages, self.stats, self.config, self.tool_manager
         )
+
+    def _get_next_pending_todo(self) -> str | None:
+        """Parse .vibe/plans/todos.md and return the first pending task."""
+        todo_path = self.config.effective_workdir / ".vibe" / "plans" / "todos.md"
+        if not todo_path.exists():
+            return None
+
+        try:
+            content = todo_path.read_text(encoding="utf-8")
+            import re
+
+            pattern = re.compile(r"^\s*-\s*\[([\s])\]\s*(.+?)(?:\s*<!--.*-->)?$")
+            for line in content.splitlines():
+                match = pattern.match(line)
+                if match:
+                    return match.group(2).strip()
+        except Exception:
+            pass
+        return None

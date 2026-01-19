@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Mistral Vibe Installation Script (Virtual Environment with Global Launcher)
+# Porker Vibe Installation Script (Virtual Environment with Global Launcher)
 # This script installs uv if not present, sets up a virtual environment,
 # installs vibe into it, and creates a global launcher script.
 
@@ -94,7 +94,7 @@ function create_global_launcher() {
 
     cat << EOF > "${LAUNCHER_PATH}"
 #!/usr/bin/env bash
-# Vibe Launcher Script
+# Porker Vibe Launcher Script
 # This script activates the project's virtual environment and runs vibe.
 
 # Path to the project root (where the .venv is located)
@@ -140,7 +140,7 @@ function main() {
     echo "██████████████████░░"
     echo "██████████████████░░"
     echo
-    echo "Starting Mistral Vibe installation with virtual environment and global launcher..."
+    echo "Starting Porker Vibe installation with virtual environment and global launcher..."
     echo
 
     check_uv_installed

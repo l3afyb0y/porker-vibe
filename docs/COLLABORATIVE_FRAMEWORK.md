@@ -2,9 +2,10 @@
 
 ## Overview
 
-The Porker-Vibe Collaborative Framework extends Mistral Vibe to support sophisticated dual-model collaboration. By leveraging specialized models for specific tasks, we achieve higher quality code generation, better architecture, and more robust documentation.
+The Porker-Vibe Collaborative Framework extends Porker Vibe to support sophisticated dual-model collaboration. By leveraging specialized models for specific tasks, we achieve higher quality code generation, better architecture, and more robust documentation.
 
 **Core Collaboration Pair:**
+
 - **Devstral-2 (Planning & Architecture):** Handles high-level strategy, system design, code review, and user interaction.
 - **Deepseek-Coder-v2 (Implementation & Execution):** Handles low-level implementation, comprehensive testing, documentation, and repository maintenance.
 
@@ -20,16 +21,16 @@ The system operates through a coordinated agent workflow:
 
 The framework intelligently routes work based on the nature of the task:
 
-| Task Type | Assigned Model | Focus Area |
-|-----------|---------------|------------|
-| **PLANNING** | Devstral-2 | Project strategy, requirements analysis |
-| **ARCHITECTURE** | Devstral-2 | System design, pattern selection |
-| **CODE_REVIEW** | Devstral-2 | Security auditing, logic verification |
-| **CODE_IMPLEMENTATION** | Deepseek-Coder-v2 | Writing functional, clean code |
-| **DOCUMENTATION** | Deepseek-Coder-v2 | API references, docstrings, READMEs |
-| **REFACTORING** | Deepseek-Coder-v2 | Code optimization, technical debt reduction |
-| **TESTING** | Deepseek-Coder-v2 | Unit, integration, and regression tests |
-| **MAINTENANCE** | Deepseek-Coder-v2 | Dependency management, linting fixes |
+| Task Type               | Assigned Model    | Focus Area                                  |
+| ----------------------- | ----------------- | ------------------------------------------- |
+| **PLANNING**            | Devstral-2        | Project strategy, requirements analysis     |
+| **ARCHITECTURE**        | Devstral-2        | System design, pattern selection            |
+| **CODE_REVIEW**         | Devstral-2        | Security auditing, logic verification       |
+| **CODE_IMPLEMENTATION** | Deepseek-Coder-v2 | Writing functional, clean code              |
+| **DOCUMENTATION**       | Deepseek-Coder-v2 | API references, docstrings, READMEs         |
+| **REFACTORING**         | Deepseek-Coder-v2 | Code optimization, technical debt reduction |
+| **TESTING**             | Deepseek-Coder-v2 | Unit, integration, and regression tests     |
+| **MAINTENANCE**         | Deepseek-Coder-v2 | Dependency management, linting fixes        |
 
 ## Workflow Lifecycle
 
@@ -46,7 +47,7 @@ The framework intelligently routes work based on the nature of the task:
 ### Requirements
 
 - Python 3.8+
-- Mistral Vibe
+- Porker Vibe
 - **Ollama** (for running local models)
 - Local models pulled via Ollama (e.g., `deepseek-coder-v2`, `qwq`, `llama3.2`)
 
@@ -99,9 +100,9 @@ agent.add_custom_task(
 
 ## Best Practices
 
--   **Detailed Prompts:** The quality of the plan depends on the clarity of your initial project description.
--   **Specialized Models:** For best results, use `deepseek-coder-v2` for code and `llama3.2` for documentation.
--   **Review Cycles:** Allow the Review model (Devstral or `qwq`) to critique implementation before finalizing.
+- **Detailed Prompts:** The quality of the plan depends on the clarity of your initial project description.
+- **Specialized Models:** For best results, use `deepseek-coder-v2` for code and `llama3.2` for documentation.
+- **Review Cycles:** Allow the Review model (Devstral or `qwq`) to critique implementation before finalizing.
 
 ## Support
 

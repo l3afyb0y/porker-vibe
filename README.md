@@ -1,12 +1,14 @@
-# Vibe Fork
+# Porker Vibe
 
-A refined, collaborative coding framework forked from Mistral Vibe. Featuring a Gemini-inspired blue theme, side-panel Todo tracking, and seamless multi-model integration via Ollama.
+A refined, collaborative coding framework.
+Featuring a Gemini-inspired blue theme, side-panel Todo tracking, and seamless multi-model integration via Ollama.
 
-*Please report issues on this Github and not the main mistralai/mistral-vibe repo.*
+_Please report issues on this Github._
 
 ## Features
 
 ### Core Capabilities
+
 - **Gemini-Inspired UI**: A clean, blue-themed TUI with a dedicated side-panel for task tracking and full-width chat input.
 - **Fully Local Mode**: Run entirely on your PC without Mistral API (set VIBE_PLANNING_MODEL)
 - **Hybrid Mode**: Devstral for planning, local models for implementation (default)
@@ -14,12 +16,14 @@ A refined, collaborative coding framework forked from Mistral Vibe. Featuring a 
 - **Automatic Ollama Management**: Vibe automatically starts Ollama if needed and stops it on exit
 
 ### Enhanced Planning & Tracking
+
 - **Side-Panel Todo System**: Real-time task tracking in a collapsible left-side panel.
 - **PLAN.md Integration**: High-level project planning that guides agent work across sessions
 - **PlanSync Tool**: Agents synchronize immediate work (todos) with long-term goals (PLAN.md)
 - **Persistent State**: Todos and plans persist per-project in `.vibe/` directory
 
 ### Developer Experience
+
 - **Minimal Repository**: Cleaned of dev artifacts like `tests/` and AI-specific `.gemini/` files for a leaner distribution.
 - **Enhanced TUI**: Redesigned with a sophisticated visual structure through blue-gradient patterns.
 - **Error Detection**: Multi-level error detection with graceful degradation and recovery
@@ -29,32 +33,39 @@ A refined, collaborative coding framework forked from Mistral Vibe. Featuring a 
 ## Operating Modes
 
 ### Fully Local Mode (No Mistral API)
+
 ```bash
 export VIBE_PLANNING_MODEL="qwen2.5-coder:32b"  # Planning
 export VIBE_CODE_MODEL="deepseek-coder-v2:latest"  # Code
 export VIBE_REVIEW_MODEL="qwq:latest"  # Review
 export VIBE_DOCS_MODEL="llama3.2:latest"  # Docs
 ```
+
 All work happens locally via Ollama. No internet or API key required.
 
 ### Hybrid Mode (Recommended)
+
 ```bash
 # Don't set VIBE_PLANNING_MODEL
 export VIBE_CODE_MODEL="deepseek-coder-v2:latest"
 export VIBE_REVIEW_MODEL="qwq:latest"
 export VIBE_DOCS_MODEL="llama3.2:latest"
 ```
+
 Devstral handles planning (via Mistral API), local models handle implementation.
 
 ### Single Model Mode
+
 ```bash
 export VIBE_LOCAL_MODEL="deepseek-coder-v2:latest"
 ```
+
 One local model handles all implementation tasks, Devstral handles planning.
 
 ## Quick Start
 
 1. **Install Ollama** and pull specialized models:
+
    ```bash
    # Install Ollama (https://ollama.ai)
    curl -fsSL https://ollama.ai/install.sh | sh
@@ -72,6 +83,7 @@ One local model handles all implementation tasks, Devstral handles planning.
    ```
 
 2. **Set environment variables**:
+
    ```bash
    # Fully local mode (no Mistral API required)
    export VIBE_PLANNING_MODEL="qwen2.5-coder:32b"  # For planning/coordination
@@ -90,6 +102,7 @@ One local model handles all implementation tasks, Devstral handles planning.
    ```
 
 3. **Run Vibe** (Ollama starts automatically):
+
    ```bash
    vibe
    ```
@@ -102,12 +115,12 @@ One local model handles all implementation tasks, Devstral handles planning.
 
 ### Model Roles
 
-| Model | Role | Responsibilities | Required API |
-|-------|------|------------------|--------------|
+| Model              | Role        | Responsibilities                                       | Required API                                                |
+| ------------------ | ----------- | ------------------------------------------------------ | ----------------------------------------------------------- |
 | **Planning Model** | Coordinator | Project planning, architecture design, task delegation | Mistral API (default) or Local (if VIBE_PLANNING_MODEL set) |
-| **CODE Model** | Implementer | Code writing, refactoring, tests | Local (Ollama) |
-| **REVIEW Model** | Reviewer | Code review, security analysis, quality assessment | Local (Ollama) |
-| **DOCS Model** | Documenter | Documentation, .gitignore, project organization | Local (Ollama) |
+| **CODE Model**     | Implementer | Code writing, refactoring, tests                       | Local (Ollama)                                              |
+| **REVIEW Model**   | Reviewer    | Code review, security analysis, quality assessment     | Local (Ollama)                                              |
+| **DOCS Model**     | Documenter  | Documentation, .gitignore, project organization        | Local (Ollama)                                              |
 
 ### Task Distribution
 
@@ -139,15 +152,15 @@ Tasks are automatically routed to specialized models:
 
 ### Single Model Mode
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| VIBE_LOCAL_MODEL | Name of the Ollama model for all tasks | None (disables collaborative mode) |
-| VIBE_OLLAMA_ENDPOINT | Custom Ollama API endpoint | http://localhost:11434 |
+| Variable             | Description                            | Default                            |
+| -------------------- | -------------------------------------- | ---------------------------------- |
+| VIBE_LOCAL_MODEL     | Name of the Ollama model for all tasks | None (disables collaborative mode) |
+| VIBE_OLLAMA_ENDPOINT | Custom Ollama API endpoint             | http://localhost:11434             |
 
 ### Planning Model (Optional - for Fully Local Mode)
 
-| Variable | Purpose | Suggested Model | Default |
-|----------|---------|-----------------|---------|
+| Variable            | Purpose                                       | Suggested Model                       | Default                              |
+| ------------------- | --------------------------------------------- | ------------------------------------- | ------------------------------------ |
 | VIBE_PLANNING_MODEL | Planning and coordination (replaces Devstral) | qwen2.5-coder:32b, deepseek-r1:latest | None (uses Devstral via Mistral API) |
 
 **Fully Local Mode:** Set VIBE_PLANNING_MODEL to run Vibe entirely locally without the Mistral API.
@@ -156,11 +169,11 @@ Tasks are automatically routed to specialized models:
 
 Use specialized models for different task types:
 
-| Variable | Purpose | Suggested Model | Default |
-|----------|---------|-----------------|---------|
-| VIBE_CODE_MODEL | Code writing, refactoring, tests | deepseek-coder-v2:latest | Falls back to VIBE_LOCAL_MODEL |
-| VIBE_REVIEW_MODEL | Code review and quality analysis | qwq:latest | Falls back to VIBE_LOCAL_MODEL |
-| VIBE_DOCS_MODEL | Documentation, git, cleanup | llama3.2:latest | Falls back to VIBE_LOCAL_MODEL |
+| Variable          | Purpose                          | Suggested Model          | Default                        |
+| ----------------- | -------------------------------- | ------------------------ | ------------------------------ |
+| VIBE_CODE_MODEL   | Code writing, refactoring, tests | deepseek-coder-v2:latest | Falls back to VIBE_LOCAL_MODEL |
+| VIBE_REVIEW_MODEL | Code review and quality analysis | qwq:latest               | Falls back to VIBE_LOCAL_MODEL |
+| VIBE_DOCS_MODEL   | Documentation, git, cleanup      | llama3.2:latest          | Falls back to VIBE_LOCAL_MODEL |
 
 **Note:** Ollama loads models on-demand, so you can have multiple models configured without loading them all at once.
 
@@ -226,12 +239,14 @@ vibe
 Vibe agents have access to powerful tools for planning and execution:
 
 ### TodoWrite Tool
+
 - Track multi-step tasks with status (pending, in_progress, completed)
 - Display real-time progress in the TUI
 - Persist todos per-project in `.vibe/todos.json`
 - Agents use this for complex tasks requiring multiple steps
 
 Example agent workflow:
+
 ```markdown
 1. Create todos using TodoWrite
 2. Mark task as in_progress before starting work
@@ -240,18 +255,21 @@ Example agent workflow:
 ```
 
 ### PlanSync Tool
+
 - Read project's PLAN.md to understand goals and architecture
 - Extract "Next Steps" from PLAN.md to create new todos
 - Keep immediate work aligned with long-term project vision
 - Sync work across sessions with persistent planning
 
 ### Planning System
+
 - **PLAN.md**: High-level project planning document (auto-created, .gitignored)
 - **PlanManager**: Hierarchical planning (Goal → Epics → Tasks → Subtasks)
 - **TodoManager**: Session-scoped immediate task tracking
 - **Automatic Sync**: Agents check PLAN.md when todos complete
 
 ### Enhanced TUI Features
+
 - **Live Todo Display**: See current tasks at the top of the interface
 - **Status Icons**: ✓ (completed), ▶ (in_progress), ○ (pending)
 - **Visual Hierarchy**: Color-coded borders and spacing for clarity
@@ -261,6 +279,7 @@ Example agent workflow:
 ## Workflow
 
 ### Basic Workflow
+
 1. **Devstral-2 analyzes** requirements and creates a development plan
 2. **Tasks are distributed** to the local model for implementation
 3. **Local model writes** code, documentation, and maintains the repo
@@ -268,6 +287,7 @@ Example agent workflow:
 5. **Iterative refinement** until completion
 
 ### Enhanced Workflow with Planning
+
 1. **Agent reads PLAN.md** to understand project goals
 2. **Creates todos** using TodoWrite based on next steps
 3. **Marks task as in_progress** before starting work
@@ -344,7 +364,7 @@ cd vibe
 # Install dependencies
 uv sync
 
-# Run Vibe Fork
+# Run Porker Vibe
 uv run vibe
 
 # Or install in development mode
@@ -352,6 +372,7 @@ uv pip install -e .
 ```
 
 **Why uv?**
+
 - Faster than pip
 - Better dependency resolution
 - Avoids environment drift
@@ -371,7 +392,7 @@ pip install -e .
 # Or install normally
 pip install .
 
-# Run Vibe Fork
+# Run Porker Vibe
 vibe
 ```
 
@@ -394,19 +415,24 @@ vibe
 # Project Plan
 
 ## Current Status
+
 Work in progress.
 
 ## Architecture
+
 Key design decisions and patterns.
 
 ## Milestones
+
 - [ ] Milestone 1: Description
 - [x] Milestone 2: Completed milestone
 
 ## Current Blockers
+
 Any issues preventing progress.
 
 ## Next Steps
+
 1. Specific actionable task
 2. Another task
 ```
@@ -478,6 +504,7 @@ sudo systemctl enable ollama  # Auto-start on boot
 If Ollama is running as a systemd service, Vibe Fork will detect it and won't start a duplicate instance.
 
 ### "Model not found"
+
 ```bash
 # Pull the model first
 ollama pull deepseek-coder-v2:latest
@@ -496,6 +523,7 @@ Ollama loads models **on-demand** when you make a request. You don't need to wor
 - **Hybrid/Single Model Mode** (default): Yes, you need a Mistral API key for Devstral
 
 To set your API key:
+
 ```bash
 export MISTRAL_API_KEY="your-api-key"
 # Or add to ~/.vibe/.env
@@ -504,6 +532,7 @@ export MISTRAL_API_KEY="your-api-key"
 Get a key at: https://console.mistral.ai/
 
 ### Connection Timeout
+
 ```bash
 # Check if Ollama is listening
 curl http://localhost:11434/api/tags
@@ -526,11 +555,13 @@ See [Ollama Modelfile documentation](https://github.com/ollama/ollama/blob/main/
 ### Todos not showing in TUI?
 
 Check that:
+
 1. The agent has created todos using `TodoWrite` tool
 2. The `.vibe/` directory exists in your project
 3. The side-panel is not collapsed (press Ctrl+T to toggle)
 
 To verify todos exist:
+
 ```bash
 cat .vibe/todos.json
 ```
@@ -546,6 +577,7 @@ A: No! Setting `VIBE_PLANNING_MODEL` enables fully local mode - no API key neede
 
 **Q: What's the difference between PlanManager and PLAN.md?**
 A:
+
 - **PlanManager**: Structured hierarchical data (Goal → Epics → Tasks → Subtasks) stored in `.vibe/plans/`
 - **PLAN.md**: Human-readable markdown document with goals, architecture, and next steps
 
@@ -562,6 +594,7 @@ A: Agents use the `TodoWrite` tool for complex multi-step tasks (typically 3+ st
 
 **Q: What are the .vibe/ files for?**
 A:
+
 - `todos.json` - Persistent todo tracking
 - `plans/` - Structured hierarchical plans
 - `collaborative_router.lock` - Multi-instance safety for collaborative mode
@@ -572,6 +605,7 @@ A: Yes! Run `vibe -c "your command"` for non-interactive mode. Todos still persi
 
 **Q: How does the enhanced error detection work?**
 A: Agents follow guidelines in `AGENTS.md` for:
+
 - Input validation at entry points
 - Type safety with Pydantic
 - Graceful error recovery with retry logic
@@ -580,13 +614,14 @@ A: Agents follow guidelines in `AGENTS.md` for:
 
 ## License
 
-See the original Mistral Vibe repository for license information.
+See the Porker Vibe repository for license information.
 
 ## Contributing
 
-This is a personal fork with experimental features. For the official Mistral Vibe project, see: https://github.com/mistralai/mistral-vibe
+This is Porker Vibe, a personal fork with experimental features. For the official Mistral Vibe project, see: https://github.com/mistralai/mistral-vibe
 
 Contributions welcome! Please note:
+
 - Follow guidelines in `AGENTS.md` for code style
 - Test with both local and hybrid modes
 - Ensure backwards compatibility with standard Vibe
