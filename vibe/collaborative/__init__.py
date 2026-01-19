@@ -1,5 +1,4 @@
-"""
-Collaborative Framework for Multi-Model Development
+"""Collaborative Framework for Multi-Model Development.
 
 This module implements a collaborative system with flexible model configuration:
 
@@ -29,37 +28,46 @@ Models are loaded on-demand by Ollama, so you can configure multiple without
 loading them all at once. Collaborative mode auto-enables when any model is set.
 """
 
-from .collaborative_agent import CollaborativeAgent
-from .collaborative_router import CollaborativeRouter
-from .task_manager import TaskManager
-from .model_coordinator import ModelCoordinator
-from .ollama_detector import (
+from __future__ import annotations
+
+from vibe.collaborative.collaborative_agent import CollaborativeAgent
+from vibe.collaborative.collaborative_router import CollaborativeRouter
+from vibe.collaborative.model_coordinator import ModelCoordinator
+from vibe.collaborative.ollama_detector import (
+    OllamaStatus,
     check_ollama_availability,
-    should_enable_collaborative_mode,
     get_local_model_from_env,
     get_planning_model,
     is_fully_local_mode,
-    OllamaStatus,
+    should_enable_collaborative_mode,
 )
-from .vibe_integration import CollaborativeVibeIntegration
-from .planning_model_config import configure_planning_model, get_planning_model_status
-from .ollama_manager import ensure_ollama_running, cleanup_ollama, get_ollama_manager
+from vibe.collaborative.ollama_manager import (
+    cleanup_ollama,
+    ensure_ollama_running,
+    get_ollama_manager,
+)
+from vibe.collaborative.planning_model_config import (
+    configure_planning_model,
+    get_planning_model_status,
+)
+from vibe.collaborative.task_manager import TaskManager
+from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
 
 __all__ = [
     "CollaborativeAgent",
     "CollaborativeRouter",
-    "TaskManager",
-    "ModelCoordinator",
     "CollaborativeVibeIntegration",
-    "check_ollama_availability",
-    "should_enable_collaborative_mode",
-    "get_local_model_from_env",
-    "get_planning_model",
-    "is_fully_local_mode",
-    "configure_planning_model",
-    "get_planning_model_status",
-    "ensure_ollama_running",
-    "cleanup_ollama",
-    "get_ollama_manager",
+    "ModelCoordinator",
     "OllamaStatus",
+    "TaskManager",
+    "check_ollama_availability",
+    "cleanup_ollama",
+    "configure_planning_model",
+    "ensure_ollama_running",
+    "get_local_model_from_env",
+    "get_ollama_manager",
+    "get_planning_model",
+    "get_planning_model_status",
+    "is_fully_local_mode",
+    "should_enable_collaborative_mode",
 ]

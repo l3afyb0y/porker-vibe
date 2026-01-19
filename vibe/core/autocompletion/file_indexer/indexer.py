@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import atexit
-import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, RLock, Timer
+import time
 
 from vibe.core.autocompletion.file_indexer.ignore_rules import IgnoreRules
 from vibe.core.autocompletion.file_indexer.store import (
@@ -45,35 +45,15 @@ class FileIndexer:
         )  # coordinates updates to _active_rebuilds and _target_root.
         self._target_root: Path | None = None
         self._shutdown = False
+        self._debounce_timer: Timer | None = None
+        self._pending_changes: list[tuple[Change, str]] = []
+        self._last_change_time = 0.0
 
         atexit.register(self.shutdown)
 
     @property
     def stats(self) -> FileIndexStats:
         return self._stats
-
-    def __init__(self, mass_change_threshold: int = 200) -> None:
-        self._lock = RLock()  # guards _store snapshot access and watcher callbacks.
-        self._stats = FileIndexStats()
-        self._ignore_rules = IgnoreRules()
-        self._store = FileIndexStore(
-            self._ignore_rules, self._stats, mass_change_threshold=mass_change_threshold
-        )
-        self._watcher = WatchController(self._handle_watch_changes)
-        self._rebuild_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="file-indexer"
-        )
-        self._active_rebuilds: dict[Path, _RebuildTask] = {}
-        self._rebuild_lock = (
-            RLock()
-        )  # coordinates updates to _active_rebuilds and _target_root.
-        self._target_root: Path | None = None
-        self._shutdown = False
-        self._debounce_timer: Timer | None = None
-        self._pending_changes: list[tuple[Change, str]] = []
-        self._last_change_time = 0.0
-
-        atexit.register(self.shutdown)
 
     def get_index(self, root: Path) -> list[IndexEntry]:
         resolved_root = root.resolve()
@@ -208,24 +188,26 @@ class FileIndexer:
 
         # Store changes and schedule debounced processing
         self._pending_changes.extend(normalized)
-        
+
         # Calculate adaptive debounce delay based on change frequency
         current_time = time.time()
         time_since_last_change = current_time - self._last_change_time
         self._last_change_time = current_time
-        
+
         # If changes are happening rapidly, use longer debounce
         if time_since_last_change < DEBOUNCE_DELAY:
             debounce_delay = min(MAX_DEBOUNCE_DELAY, DEBOUNCE_DELAY * 2)
         else:
             debounce_delay = DEBOUNCE_DELAY
-        
+
         # Cancel any pending debounce timer
         if self._debounce_timer:
             self._debounce_timer.cancel()
-        
+
         # Schedule the debounced processing
-        self._debounce_timer = Timer(debounce_delay, self._process_debounced_changes, args=(root,))
+        self._debounce_timer = Timer(
+            debounce_delay, self._process_debounced_changes, args=(root,)
+        )
         self._debounce_timer.daemon = True
         self._debounce_timer.start()
 
@@ -233,12 +215,12 @@ class FileIndexer:
         """Process accumulated changes after debounce delay."""
         if not self._pending_changes:
             return
-        
+
         with self._lock:  # make watcher ignore stale roots
             if self._store.root != root:
                 self._pending_changes.clear()
                 return
-            
+
             # Apply all accumulated changes
             self._store.apply_changes(self._pending_changes)
             self._pending_changes.clear()

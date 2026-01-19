@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import traceback
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Callable
+import traceback
 from typing import TYPE_CHECKING
 
 from vibe.cli.textual_ui.widgets.compact import CompactMessage
@@ -31,7 +31,6 @@ class EventHandler:
         mount_callback: Callable,
         scroll_callback: Callable,
         todo_update_callback: Callable,
-
         get_tools_collapsed: Callable[[], bool],
         get_todos_collapsed: Callable[[], bool],
     ) -> None:
@@ -53,14 +52,14 @@ class EventHandler:
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(self.error_log_path, "a", encoding="utf-8") as f:
-                f.write(f"\n{'='*80}\n")
+                f.write(f"\n{'=' * 80}\n")
                 f.write(f"[{timestamp}] Error in {context}\n")
-                f.write(f"{'='*80}\n")
+                f.write(f"{'=' * 80}\n")
                 f.write(f"Error Type: {type(error).__name__}\n")
-                f.write(f"Error Message: {str(error)}\n")
-                f.write(f"\nTraceback:\n")
+                f.write(f"Error Message: {error!s}\n")
+                f.write("\nTraceback:\n")
                 f.write(traceback.format_exc())
-                f.write(f"\n{'='*80}\n")
+                f.write(f"\n{'=' * 80}\n")
         except Exception:
             # If logging fails, don't crash the app
             pass
@@ -83,10 +82,11 @@ class EventHandler:
                     self.log_error(e, "todo_update_callback after ToolResultEvent")
                     # Show error in TUI
                     from vibe.cli.textual_ui.widgets.messages import ErrorMessage
+
                     error_msg = ErrorMessage(
-                        f"Error updating todos: {type(e).__name__}: {str(e)}\n"
-                        f"See ~/.vibe/error.log for full traceback",
-                        collapsed=self.get_tools_collapsed()
+                        f"Error updating todos: {type(e).__name__}: {e!s}\n"
+                        "See ~/.vibe/error.log for full traceback",
+                        collapsed=self.get_tools_collapsed(),
                     )
                     await self.mount_callback(error_msg)
             case ReasoningEvent():

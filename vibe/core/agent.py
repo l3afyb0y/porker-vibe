@@ -3,19 +3,23 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 from enum import StrEnum, auto
+from pathlib import Path
 import time
-from typing import cast
-from uuid import uuid4
+from typing import TYPE_CHECKING, cast
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 
 from vibe.core.config import VibeConfig
 from vibe.core.interaction_logger import InteractionLogger
 from vibe.core.llm.backend.factory import BACKEND_FACTORY
-from vibe.core.llm.format import APIToolFormatHandler, ResolvedMessage
+from vibe.core.llm.format import APIToolFormatHandler, ResolvedMessage, ResolvedToolCall
 from vibe.core.llm.types import BackendLike
 from vibe.core.middleware import (
+    AutoCompactMiddleware,
+    AutoTaskTrackingMiddleware,
     ConversationContext,
+    LoopDetectionMiddleware,
     MiddlewareAction,
     MiddlewarePipeline,
     MiddlewareResult,
@@ -23,15 +27,11 @@ from vibe.core.middleware import (
     PriceLimitMiddleware,
     ResetReason,
     TurnLimitMiddleware,
-    AutoTaskTrackingMiddleware,
-    AutoCompactMiddleware,
-    LoopDetectionMiddleware,
 )
 from vibe.core.modes import AgentMode
-from vibe.core.plan_manager import PlanManager
 from vibe.core.plan_document_manager import PlanDocumentManager
-from vibe.core.planning_models import PlanItem
-from vibe.core.todo_manager import TodoManager
+from vibe.core.plan_manager import PlanManager
+from vibe.core.planning_models import ItemStatus
 from vibe.core.prompts import UtilityPrompt
 from vibe.core.skills.manager import SkillManager
 from vibe.core.system_prompt import get_universal_system_prompt
@@ -69,6 +69,9 @@ from vibe.core.utils import (
     is_user_cancellation_event,
 )
 
+if TYPE_CHECKING:
+    from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
+
 
 class ToolExecutionResponse(StrEnum):
     SKIP = auto()
@@ -97,7 +100,6 @@ class Agent:
         self,
         config: VibeConfig,
         plan_manager: PlanManager,
-        todo_manager: TodoManager,
         mode: AgentMode = AgentMode.DEFAULT,
         message_observer: Callable[[LLMMessage], None] | None = None,
         max_turns: int | None = None,
@@ -109,10 +111,9 @@ class Agent:
         """Initialize the agent with configuration and mode."""
         self.config = config
         self.plan_manager = plan_manager
-        self.todo_manager = todo_manager
         self.plan_document_manager = PlanDocumentManager(config.effective_workdir)
         self.auto_task_tracking_middleware = AutoTaskTrackingMiddleware(plan_manager)
-        self._current_plan_item_id: Optional[UUID] = None
+        self._current_plan_item_id: UUID | None = None
         self._mode = mode
         self._max_turns = max_turns
         self._max_price = max_price
@@ -122,8 +123,8 @@ class Agent:
         self.skill_manager = SkillManager(lambda: self.config)
         self.format_handler = APIToolFormatHandler()
 
-        # Inject todo_manager into TodoWrite tool
-        self._inject_todo_manager_into_tool()
+        # Inject managers into tools that need them
+        self._inject_managers_into_tools()
 
         self.backend_factory = lambda: backend or self._select_backend()
         self.backend = self.backend_factory()
@@ -138,7 +139,6 @@ class Agent:
             self.tool_manager,
             config,
             plan_manager=self.plan_manager,
-            todo_manager=self.todo_manager,
             skill_manager=self.skill_manager,
         )
         self.messages = [LLMMessage(role=Role.system, content=system_prompt)]
@@ -199,16 +199,8 @@ class Agent:
         async for event in self._conversation_loop(msg):
             yield event
 
-    def _inject_todo_manager_into_tool(self) -> None:
+    def _inject_managers_into_tools(self) -> None:
         """Inject managers into tools that need them."""
-        try:
-            # Inject todo_manager into TodoWrite tool
-            todo_tool = self.tool_manager.get("todo_write")
-            todo_tool._todo_manager = self.todo_manager
-        except Exception:
-            # TodoWrite tool might not be available, that's okay
-            pass
-
         try:
             # Inject plan_document_manager into PlanSync tool
             plan_sync_tool = self.tool_manager.get("plan_sync")
@@ -228,12 +220,15 @@ class Agent:
             self.middleware_pipeline.add(PriceLimitMiddleware(self._max_price))
 
         self.middleware_pipeline.add(PlanModeMiddleware(lambda: self._mode))
-        
+
         # Add collaborative routing middleware if collaborative integration is available
         if self.collaborative_integration:
             from vibe.core.middleware import CollaborativeRoutingMiddleware
-            self.middleware_pipeline.add(CollaborativeRoutingMiddleware(self.collaborative_integration))
-        
+
+            self.middleware_pipeline.add(
+                CollaborativeRoutingMiddleware(self.collaborative_integration)
+            )
+
         self.middleware_pipeline.add(self.auto_task_tracking_middleware)
         self.middleware_pipeline.add(AutoCompactMiddleware(lambda: self._mode))
         self.middleware_pipeline.add(LoopDetectionMiddleware())
@@ -292,9 +287,6 @@ class Agent:
     async def _conversation_loop(self, user_msg: str) -> AsyncGenerator[BaseEvent]:
         self._clean_message_history()
 
-
-
-        
         try:
             should_break_loop = False
             while not should_break_loop:
@@ -309,13 +301,15 @@ class Agent:
                 if result.action == MiddlewareAction.STOP:
                     return
 
-                current_turn_message_content = user_msg # Start with the user's message
-                self._current_plan_item_id = None # Reset for each turn
+                current_turn_message_content = user_msg  # Start with the user's message
+                self._current_plan_item_id = None  # Reset for each turn
 
                 next_item = self.plan_manager.get_next_actionable_item()
                 if next_item and next_item.status == ItemStatus.PENDING:
                     self._current_plan_item_id = next_item.id
-                    self.plan_manager.update_item_status(next_item.id, ItemStatus.IN_PROGRESS)
+                    self.plan_manager.update_item_status(
+                        next_item.id, ItemStatus.IN_PROGRESS
+                    )
                     plan_instruction = (
                         f"The current plan requires you to work on: {next_item.name} (ID: {next_item.id}). "
                         f"Description: {next_item.description or 'No description provided.'}. "
@@ -324,9 +318,13 @@ class Agent:
                         "IMPORTANT: Focus solely on completing this plan item. "
                         f"Your response to the original user message '{user_msg}' should be a brief acknowledgment that you are working on the plan item."
                     )
-                    current_turn_message_content = plan_instruction # This becomes the user message for this turn
+                    current_turn_message_content = (
+                        plan_instruction  # This becomes the user message for this turn
+                    )
 
-                self.messages.append(LLMMessage(role=Role.user, content=current_turn_message_content))
+                self.messages.append(
+                    LLMMessage(role=Role.user, content=current_turn_message_content)
+                )
                 self.stats.steps += 1
                 user_cancelled = False
                 async for event in self._perform_llm_turn():
@@ -430,16 +428,25 @@ class Agent:
     async def _handle_tool_calls(
         self, resolved: ResolvedMessage
     ) -> AsyncGenerator[ToolCallEvent | ToolResultEvent]:
-        for failed in resolved.failed_calls:
-            error_msg = f"<{TOOL_ERROR_TAG}>{failed.tool_name}: {failed.error}</{TOOL_ERROR_TAG}>"
+        async for event in self._handle_failed_calls(resolved.failed_calls):
+            yield event
 
+        for tool_call in resolved.tool_calls:
+            async for event in self._process_single_tool_call(tool_call):
+                yield event
+
+    async def _handle_failed_calls(
+        self, failed_calls: list
+    ) -> AsyncGenerator[ToolResultEvent]:
+        """Handle failed tool calls and yield result events."""
+        for failed in failed_calls:
+            error_msg = f"<{TOOL_ERROR_TAG}>{failed.tool_name}: {failed.error}</{TOOL_ERROR_TAG}>"
             yield ToolResultEvent(
                 tool_name=failed.tool_name,
                 tool_class=None,
                 error=error_msg,
                 tool_call_id=failed.call_id,
             )
-
             self.stats.tool_calls_failed += 1
             self.messages.append(
                 self.format_handler.create_failed_tool_response_message(
@@ -447,220 +454,223 @@ class Agent:
                 )
             )
 
-        for tool_call in resolved.tool_calls:
-            tool_call_id = tool_call.call_id
+    async def _process_single_tool_call(
+        self, tool_call: ResolvedToolCall
+    ) -> AsyncGenerator[ToolCallEvent | ToolResultEvent]:
+        """Process a single tool call and yield events."""
+        tool_call_id = tool_call.call_id
 
-            yield ToolCallEvent(
+        yield ToolCallEvent(
+            tool_name=tool_call.tool_name,
+            tool_class=tool_call.tool_class,
+            args=tool_call.validated_args,
+            tool_call_id=tool_call_id,
+        )
+
+        try:
+            tool_instance = self.tool_manager.get(tool_call.tool_name)
+        except Exception as exc:
+            yield self._create_tool_error_result(
+                tool_call, f"Error getting tool '{tool_call.tool_name}': {exc}"
+            )
+            return
+
+        decision = await self._should_execute_tool(
+            tool_instance, tool_call.validated_args, tool_call_id
+        )
+
+        if decision.verdict == ToolExecutionResponse.SKIP:
+            for event in self._handle_skipped_tool(tool_call, decision):
+                yield event
+            return
+
+        self.stats.tool_calls_agreed += 1
+        if self._current_plan_item_id:
+            self.auto_task_tracking_middleware.register_tool_call_for_plan_item(
+                tool_call_id, self._current_plan_item_id
+            )
+
+        async for event in self._execute_tool(tool_call, tool_instance):
+            yield event
+
+    def _handle_skipped_tool(
+        self, tool_call: ResolvedToolCall, decision: ToolDecision
+    ) -> list[ToolResultEvent]:
+        """Handle a skipped tool call."""
+        self.stats.tool_calls_rejected += 1
+        skip_reason = decision.feedback or str(
+            get_user_cancellation_message(
+                CancellationReason.TOOL_SKIPPED, tool_call.tool_name
+            )
+        )
+        self.messages.append(
+            LLMMessage.model_validate(
+                self.format_handler.create_tool_response_message(tool_call, skip_reason)
+            )
+        )
+        return [
+            ToolResultEvent(
                 tool_name=tool_call.tool_name,
                 tool_class=tool_call.tool_class,
-                args=tool_call.validated_args,
-                tool_call_id=tool_call_id,
+                skipped=True,
+                skip_reason=skip_reason,
+                tool_call_id=tool_call.call_id,
             )
+        ]
 
-            try:
-                tool_instance = self.tool_manager.get(tool_call.tool_name)
-            except Exception as exc:
-                error_msg = f"Error getting tool '{tool_call.tool_name}': {exc}"
-                yield ToolResultEvent(
-                    tool_name=tool_call.tool_name,
-                    tool_class=tool_call.tool_class,
-                    error=error_msg,
-                    tool_call_id=tool_call_id,
-                )
-                self.messages.append(
-                    LLMMessage.model_validate(
-                        self.format_handler.create_tool_response_message(
-                            tool_call, error_msg
-                        )
-                    )
-                )
-                continue
-
-            decision = await self._should_execute_tool(
-                tool_instance, tool_call.validated_args, tool_call_id
+    def _create_tool_error_result(
+        self, tool_call: ResolvedToolCall, error_msg: str
+    ) -> ToolResultEvent:
+        """Create an error result event and append message."""
+        self.messages.append(
+            LLMMessage.model_validate(
+                self.format_handler.create_tool_response_message(tool_call, error_msg)
             )
+        )
+        return ToolResultEvent(
+            tool_name=tool_call.tool_name,
+            tool_class=tool_call.tool_class,
+            error=error_msg,
+            tool_call_id=tool_call.call_id,
+        )
 
-            if decision.verdict == ToolExecutionResponse.SKIP:
-                self.stats.tool_calls_rejected += 1
-                skip_reason = decision.feedback or str(
-                    get_user_cancellation_message(
-                        CancellationReason.TOOL_SKIPPED, tool_call.tool_name
-                    )
+    async def _execute_tool(
+        self, tool_call: ResolvedToolCall, tool_instance: BaseTool
+    ) -> AsyncGenerator[ToolResultEvent]:
+        """Execute a tool and yield the result event."""
+        try:
+            start_time = time.perf_counter()
+            result_model = await tool_instance.invoke(**tool_call.args_dict)
+            duration = time.perf_counter() - start_time
+
+            text = "\n".join(f"{k}: {v}" for k, v in result_model.model_dump().items())
+            self.messages.append(
+                LLMMessage.model_validate(
+                    self.format_handler.create_tool_response_message(tool_call, text)
                 )
+            )
+            yield ToolResultEvent(
+                tool_name=tool_call.tool_name,
+                tool_class=tool_call.tool_class,
+                result=result_model,
+                duration=duration,
+                tool_call_id=tool_call.call_id,
+            )
+            self.stats.tool_calls_succeeded += 1
 
-                yield ToolResultEvent(
-                    tool_name=tool_call.tool_name,
-                    tool_class=tool_call.tool_class,
-                    skipped=True,
-                    skip_reason=skip_reason,
-                    tool_call_id=tool_call_id,
-                )
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            yield self._handle_cancellation(tool_call, exc)
+            raise
 
-                self.messages.append(
-                    LLMMessage.model_validate(
-                        self.format_handler.create_tool_response_message(
-                            tool_call, skip_reason
-                        )
-                    )
-                )
-                continue
+        except (ToolError, ToolPermissionError) as exc:
+            yield self._handle_tool_exception(tool_call, tool_instance, exc)
 
-            self.stats.tool_calls_agreed += 1
-            
-            if self._current_plan_item_id:
-                self.auto_task_tracking_middleware.register_tool_call_for_plan_item(
-                    tool_call_id, self._current_plan_item_id
-                )
+        except Exception as exc:
+            yield self._handle_unexpected_exception(tool_call, tool_instance, exc)
 
+    def _handle_cancellation(
+        self, tool_call: ResolvedToolCall, exc: Exception
+    ) -> ToolResultEvent:
+        """Handle cancellation or keyboard interrupt."""
+        cancel = str(get_user_cancellation_message(CancellationReason.TOOL_INTERRUPTED))
+        self.messages.append(
+            LLMMessage.model_validate(
+                self.format_handler.create_tool_response_message(tool_call, cancel)
+            )
+        )
+        return ToolResultEvent(
+            tool_name=tool_call.tool_name,
+            tool_class=tool_call.tool_class,
+            error=cancel,
+            tool_call_id=tool_call.call_id,
+        )
+
+    def _handle_tool_exception(
+        self, tool_call: ResolvedToolCall, tool_instance: BaseTool, exc: Exception
+    ) -> ToolResultEvent:
+        """Handle ToolError or ToolPermissionError."""
+        error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed: {exc}</{TOOL_ERROR_TAG}>"
+        if isinstance(exc, ToolPermissionError):
+            self.stats.tool_calls_agreed -= 1
+            self.stats.tool_calls_rejected += 1
+        else:
+            self.stats.tool_calls_failed += 1
+        self.messages.append(
+            LLMMessage.model_validate(
+                self.format_handler.create_tool_response_message(tool_call, error_msg)
+            )
+        )
+        return ToolResultEvent(
+            tool_name=tool_call.tool_name,
+            tool_class=tool_call.tool_class,
+            error=error_msg,
+            tool_call_id=tool_call.call_id,
+        )
+
+    def _handle_unexpected_exception(
+        self, tool_call: ResolvedToolCall, tool_instance: BaseTool, exc: Exception
+    ) -> ToolResultEvent:
+        """Handle unexpected exceptions during tool execution."""
+        from pathlib import Path
+
+        error_log_path = Path.home() / ".vibe" / "error.log"
+        log_success = self._log_error_to_file(error_log_path, tool_call, exc)
+
+        if log_success:
+            error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\nSee ~/.vibe/error.log for full traceback</{TOOL_ERROR_TAG}>"
+        else:
+            error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\n(Error logging failed - check terminal output)</{TOOL_ERROR_TAG}>"
+
+        self.stats.tool_calls_failed += 1
+        self.messages.append(
+            LLMMessage.model_validate(
+                self.format_handler.create_tool_response_message(tool_call, error_msg)
+            )
+        )
+        return ToolResultEvent(
+            tool_name=tool_call.tool_name,
+            tool_class=tool_call.tool_class,
+            error=error_msg,
+            tool_call_id=tool_call.call_id,
+        )
+
+    def _log_error_to_file(
+        self, error_log_path: Path, tool_call: ResolvedToolCall, exc: Exception
+    ) -> bool:
+        """Log error to file and return success status."""
+        from datetime import datetime
+        import sys
+        import traceback
+
+        try:
+            error_log_path.parent.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(error_log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'=' * 80}\n")
+                f.write(f"[{timestamp}] Tool Execution Error: {tool_call.tool_name}\n")
+                f.write(f"{'=' * 80}\n")
+                f.write(f"Error Type: {type(exc).__name__}\n")
+                f.write(f"Error Message: {exc!s}\n")
+                f.write(f"Tool: {tool_call.tool_name}\n")
+                f.write(f"Tool Args: {tool_call.args_dict}\n")
+                f.write("\nTraceback:\n")
+                f.write(traceback.format_exc())
+                f.write(f"\n{'=' * 80}\n")
+                f.flush()
+            return True
+        except Exception as log_err:
             try:
-                start_time = time.perf_counter()
-                result_model = await tool_instance.invoke(**tool_call.args_dict)
-                duration = time.perf_counter() - start_time
-
-                text = "\n".join(
-                    f"{k}: {v}" for k, v in result_model.model_dump().items()
+                sys.stderr.write("\n[VIBE ERROR LOGGER FAILED]\n")
+                sys.stderr.write(f"Original error: {type(exc).__name__}: {exc}\n")
+                sys.stderr.write(
+                    f"Logging error: {type(log_err).__name__}: {log_err}\n"
                 )
-
-                self.messages.append(
-                    LLMMessage.model_validate(
-                        self.format_handler.create_tool_response_message(
-                            tool_call, text
-                        )
-                    )
-                )
-
-                yield ToolResultEvent(
-                    tool_name=tool_call.tool_name,
-                    tool_class=tool_call.tool_class,
-                    result=result_model,
-                    duration=duration,
-                    tool_call_id=tool_call_id,
-                )
-
-                self.stats.tool_calls_succeeded += 1
-
-            except asyncio.CancelledError:
-                cancel = str(
-                    get_user_cancellation_message(CancellationReason.TOOL_INTERRUPTED)
-                )
-                yield ToolResultEvent(
-                    tool_name=tool_call.tool_name,
-                    tool_class=tool_call.tool_class,
-                    error=cancel,
-                    tool_call_id=tool_call_id,
-                )
-                self.messages.append(
-                    LLMMessage.model_validate(
-                        self.format_handler.create_tool_response_message(
-                            tool_call, cancel
-                        )
-                    )
-                )
-                raise
-
-            except KeyboardInterrupt:
-                cancel = str(
-                    get_user_cancellation_message(CancellationReason.TOOL_INTERRUPTED)
-                )
-                yield ToolResultEvent(
-                    tool_name=tool_call.tool_name,
-                    tool_class=tool_call.tool_class,
-                    error=cancel,
-                    tool_call_id=tool_call_id,
-                )
-                self.messages.append(
-                    LLMMessage.model_validate(
-                        self.format_handler.create_tool_response_message(
-                            tool_call, cancel
-                        )
-                    )
-                )
-                raise
-
-            except (ToolError, ToolPermissionError) as exc:
-                error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed: {exc}</{TOOL_ERROR_TAG}>"
-
-                yield ToolResultEvent(
-                    tool_name=tool_call.tool_name,
-                    tool_class=tool_call.tool_class,
-                    error=error_msg,
-                    tool_call_id=tool_call_id,
-                )
-
-                if isinstance(exc, ToolPermissionError):
-                    self.stats.tool_calls_agreed -= 1
-                    self.stats.tool_calls_rejected += 1
-                else:
-                    self.stats.tool_calls_failed += 1
-                self.messages.append(
-                    LLMMessage.model_validate(
-                        self.format_handler.create_tool_response_message(
-                            tool_call, error_msg
-                        )
-                    )
-                )
-                continue
-
-            except Exception as exc:
-                # Catch any other unexpected exceptions during tool execution
-                import traceback
-                import sys
-                from datetime import datetime
-                from pathlib import Path
-
-                # Log to error.log with full traceback - always in ~/.vibe
-                error_log_path = Path.home() / ".vibe" / "error.log"
-                log_success = False
-
-                try:
-                    error_log_path.parent.mkdir(parents=True, exist_ok=True)
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    with open(error_log_path, "a", encoding="utf-8") as f:
-                        f.write(f"\n{'='*80}\n")
-                        f.write(f"[{timestamp}] Tool Execution Error: {tool_call.tool_name}\n")
-                        f.write(f"{'='*80}\n")
-                        f.write(f"Error Type: {type(exc).__name__}\n")
-                        f.write(f"Error Message: {str(exc)}\n")
-                        f.write(f"Tool: {tool_call.tool_name}\n")
-                        f.write(f"Tool Args: {tool_call.args_dict}\n")
-                        f.write(f"\nTraceback:\n")
-                        f.write(traceback.format_exc())
-                        f.write(f"\n{'='*80}\n")
-                        f.flush()  # Ensure it's written
-                    log_success = True
-                except Exception as log_err:
-                    # If logging to ~/.vibe/error.log fails, try stderr
-                    try:
-                        sys.stderr.write(f"\n[VIBE ERROR LOGGER FAILED]\n")
-                        sys.stderr.write(f"Original error: {type(exc).__name__}: {exc}\n")
-                        sys.stderr.write(f"Logging error: {type(log_err).__name__}: {log_err}\n")
-                        sys.stderr.write(f"Attempted log path: {error_log_path}\n")
-                        sys.stderr.write(traceback.format_exc())
-                        sys.stderr.flush()
-                    except Exception:
-                        pass  # Truly nothing we can do
-
-                if log_success:
-                    error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\nSee ~/.vibe/error.log for full traceback</{TOOL_ERROR_TAG}>"
-                else:
-                    error_msg = f"<{TOOL_ERROR_TAG}>{tool_instance.get_name()} failed with {type(exc).__name__}: {exc}\n\n(Error logging failed - check terminal output)</{TOOL_ERROR_TAG}>"
-
-                yield ToolResultEvent(
-                    tool_name=tool_call.tool_name,
-                    tool_class=tool_call.tool_class,
-                    error=error_msg,
-                    tool_call_id=tool_call_id,
-                )
-
-                self.stats.tool_calls_failed += 1
-                self.messages.append(
-                    LLMMessage.model_validate(
-                        self.format_handler.create_tool_response_message(
-                            tool_call, error_msg
-                        )
-                    )
-                )
-                continue
+                sys.stderr.write(f"Attempted log path: {error_log_path}\n")
+                sys.stderr.write(traceback.format_exc())
+                sys.stderr.flush()
+            except Exception:
+                pass
+            return False
 
     async def _chat(self, max_tokens: int | None = None) -> LLMChunk:
         active_model = self.config.get_active_model()
@@ -1008,13 +1018,12 @@ class Agent:
         self.skill_manager = SkillManager(lambda: self.config)
 
         # Re-inject managers into tools after re-creating tool_manager
-        self._inject_todo_manager_into_tool()
+        self._inject_managers_into_tools()
 
         new_system_prompt = get_universal_system_prompt(
             self.tool_manager,
             self.config,
             plan_manager=self.plan_manager,
-            todo_manager=self.todo_manager,
             skill_manager=self.skill_manager,
         )
         self.messages = [LLMMessage(role=Role.system, content=new_system_prompt)]

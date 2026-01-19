@@ -1,33 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-
-from enum import StrEnum, auto
-
-import subprocess
-
-import time
-
-import traceback
-from datetime import datetime
-from pathlib import Path
-
-from typing import Any, ClassVar, assert_never, List, Dict
 from collections.abc import Callable
-
-import json # Added import
+from datetime import datetime
+from enum import StrEnum, auto
+import json  # Added import
+from pathlib import Path
+import subprocess
+import time
+import traceback
+from typing import Any, ClassVar, assert_never
 
 from pydantic import BaseModel
-
 from textual.app import App, ComposeResult
-
 from textual.binding import Binding, BindingType
-from textual.containers import Horizontal, VerticalScroll, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import AppBlur, AppFocus, MouseUp
 from textual.widget import Widget
 from textual.widgets import Static
 
-from vibe import __version__ as CORE_VERSION
 from vibe.cli.clipboard import copy_selection_to_clipboard
 from vibe.cli.commands import CommandRegistry
 from vibe.cli.terminal_setup import setup_terminal
@@ -68,13 +59,16 @@ from vibe.cli.update_notifier import (
     VersionUpdateGateway,
     get_update_if_available,
 )
+from vibe.collaborative.task_manager import (  # Import TaskType
+    TaskType,
+)
+from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
 from vibe.core.agent import Agent
 from vibe.core.autocompletion.path_prompt_adapter import render_path_prompt
 from vibe.core.config import VibeConfig
 from vibe.core.modes import AgentMode, next_mode
 from vibe.core.paths.config_paths import HISTORY_FILE
 from vibe.core.plan_manager import PlanManager
-from vibe.core.todo_manager import TodoManager
 from vibe.core.tools.base import BaseToolConfig, ToolPermission
 from vibe.core.types import ApprovalResponse, LLMMessage, Role
 from vibe.core.utils import (
@@ -83,14 +77,17 @@ from vibe.core.utils import (
     is_dangerous_directory,
     logger,
 )
-from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
-from vibe.collaborative.task_manager import TaskType, TaskStatus, ModelRole # Import TaskType
 
 
 class BottomApp(StrEnum):
     Approval = auto()
     Config = auto()
     Input = auto()
+
+
+MIN_SPLIT_PARTS = 2
+MIN_RALPH_PARTS = 3
+MAX_PERCENTAGE = 100
 
 
 class VibeApp(App):  # noqa: PLR0904
@@ -103,7 +100,6 @@ class VibeApp(App):  # noqa: PLR0904
         Binding("escape", "interrupt", "Interrupt", show=False, priority=True),
         Binding("ctrl+o", "toggle_tool", "Toggle Tool", show=False),
         Binding("ctrl+t", "toggle_todo", "Toggle Todo", show=False),
-
         Binding("shift+tab", "cycle_mode", "Cycle Mode", show=False, priority=True),
         Binding("shift+up", "scroll_chat_up", "Scroll Up", show=False, priority=True),
         Binding(
@@ -148,7 +144,6 @@ class VibeApp(App):  # noqa: PLR0904
 
         self.history_file = HISTORY_FILE.path
         self._plan_manager = PlanManager(config.effective_workdir)
-        self._todo_manager = TodoManager(config.effective_workdir)
 
         self._tools_collapsed = True
         self._todos_collapsed = False
@@ -171,14 +166,18 @@ class VibeApp(App):  # noqa: PLR0904
         self._auto_scroll = True
         self._last_escape_time: float | None = None
         self._terminal_theme = capture_terminal_theme()
-        self._visible_message_range: tuple[int, int] = (0, 20)  # Virtual scrolling range
-        self._message_widgets: list[Widget] = []  # Track message widgets for virtualization
+        self._visible_message_range: tuple[int, int] = (
+            0,
+            20,
+        )  # Virtual scrolling range
+        self._message_widgets: list[
+            Widget
+        ] = []  # Track message widgets for virtualization
         self._ui_update_batch: list[Callable[[], None]] = []  # Batch UI updates
         self._batch_update_scheduled = False
 
         # Set up error log file - always in ~/.vibe
         self._error_log_path = Path.home() / ".vibe" / "error.log"
-
 
     @property
     def config(self) -> VibeConfig:
@@ -190,14 +189,14 @@ class VibeApp(App):  # noqa: PLR0904
             self._error_log_path.parent.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(self._error_log_path, "a", encoding="utf-8") as f:
-                f.write(f"\n{'='*80}\n")
+                f.write(f"\n{'=' * 80}\n")
                 f.write(f"[{timestamp}] Error in {context}\n")
-                f.write(f"{'='*80}\n")
+                f.write(f"{'=' * 80}\n")
                 f.write(f"Error Type: {type(error).__name__}\n")
-                f.write(f"Error Message: {str(error)}\n")
-                f.write(f"\nTraceback:\n")
+                f.write(f"Error Message: {error!s}\n")
+                f.write("\nTraceback:\n")
                 f.write(traceback.format_exc())
-                f.write(f"\n{'='*80}\n")
+                f.write(f"\n{'=' * 80}\n")
         except Exception:
             # If logging fails, don't crash the app
             pass
@@ -208,7 +207,7 @@ class VibeApp(App):  # noqa: PLR0904
                 # 1. Todo list side panel (left)
                 yield TodoWidget(
                     self._plan_manager,
-                    self._todo_manager,
+                    workdir=self._config.effective_workdir,
                     collaborative_integration=self._collaborative_integration,
                     collapsed=self._todos_collapsed,
                 )
@@ -268,11 +267,11 @@ class VibeApp(App):  # noqa: PLR0904
         try:
             todo = self.query_one(TodoWidget)
             history = self.query_one("#history-container")
-            
+
             # Position it at the bottom right of history area
             x = history.size.width - todo.size.width - 2
             y = history.size.height - todo.size.height - 1
-            
+
             todo.offset = (max(0, x), max(0, y))
         except Exception:
             pass
@@ -280,15 +279,14 @@ class VibeApp(App):  # noqa: PLR0904
     async def on_mount(self) -> None:
         if self._terminal_theme:
             self.register_theme(self._terminal_theme)
-        
+
         # FORCE TERMINAL THEME (Blue)
         self.theme = TERMINAL_THEME_NAME
-        
+
         self.event_handler = EventHandler(
             mount_callback=self._mount_and_scroll,
             scroll_callback=self._scroll_to_bottom_deferred,
             todo_update_callback=lambda: self.query_one(TodoWidget).update_todos(),
-
             get_tools_collapsed=lambda: self._tools_collapsed,
             get_todos_collapsed=lambda: self._todos_collapsed,
         )
@@ -314,7 +312,7 @@ class VibeApp(App):  # noqa: PLR0904
             self.call_after_refresh(self._process_initial_prompt)
         else:
             self._ensure_agent_init_task()
-        
+
         self.call_after_refresh(self.on_resize)
 
     def _process_initial_prompt(self) -> None:
@@ -324,8 +322,7 @@ class VibeApp(App):  # noqa: PLR0904
             )
 
     async def on_chat_input_container_submitted(
-        self,
-        event: ChatInputContainer.Submitted,
+        self, event: ChatInputContainer.Submitted
     ) -> None:
         value = event.value.strip()
         if not value:
@@ -347,8 +344,7 @@ class VibeApp(App):  # noqa: PLR0904
         await self._handle_user_message(value)
 
     async def on_approval_app_approval_granted(
-        self,
-        message: ApprovalApp.ApprovalGranted,
+        self, message: ApprovalApp.ApprovalGranted
     ) -> None:
         if self._pending_approval and not self._pending_approval.done():
             self._pending_approval.set_result((ApprovalResponse.YES, None))
@@ -356,8 +352,7 @@ class VibeApp(App):  # noqa: PLR0904
         await self._switch_to_input_app()
 
     async def on_approval_app_approval_granted_always_tool(
-        self,
-        message: ApprovalApp.ApprovalGrantedAlwaysTool,
+        self, message: ApprovalApp.ApprovalGrantedAlwaysTool
     ) -> None:
         self._set_tool_permission_always(
             message.tool_name, save_permanently=message.save_permanently
@@ -369,8 +364,7 @@ class VibeApp(App):  # noqa: PLR0904
         await self._switch_to_input_app()
 
     async def on_approval_app_approval_rejected(
-        self,
-        message: ApprovalApp.ApprovalRejected,
+        self, message: ApprovalApp.ApprovalRejected
     ) -> None:
         if self._pending_approval and not self._pending_approval.done():
             feedback = str(
@@ -388,8 +382,6 @@ class VibeApp(App):  # noqa: PLR0904
             await self._loading_widget.remove()
             self._loading_widget = None
 
-
-
     def on_config_app_setting_changed(self, message: ConfigApp.SettingChanged) -> None:
         if message.key == "textual_theme":
             if message.value == TERMINAL_THEME_NAME:
@@ -399,8 +391,7 @@ class VibeApp(App):  # noqa: PLR0904
                 self.theme = message.value
 
     async def on_config_app_config_closed(
-        self,
-        message: ConfigApp.ConfigClosed,
+        self, message: ConfigApp.ConfigClosed
     ) -> None:
         if message.changes:
             self._save_config_changes(message.changes)
@@ -413,8 +404,7 @@ class VibeApp(App):  # noqa: PLR0904
         await self._switch_to_input_app()
 
     async def on_compact_message_completed(
-        self,
-        message: CompactMessage.Completed,
+        self, message: CompactMessage.Completed
     ) -> None:
         messages_area = self.query_one("#messages")
         children = list(messages_area.children)
@@ -432,9 +422,7 @@ class VibeApp(App):  # noqa: PLR0904
                 await widget.remove()
 
     def _set_tool_permission_always(
-        self,
-        tool_name: str,
-        save_permanently: bool = False,
+        self, tool_name: str, save_permanently: bool = False
     ) -> None:
         if save_permanently:
             VibeConfig.save_updates({"tools": {tool_name: {"permission": "always"}}})
@@ -525,10 +513,10 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
             return
-        
+
         # Extract project description from user input
         parts = user_input.split(maxsplit=1)
-        if len(parts) < 2:
+        if len(parts) < MIN_SPLIT_PARTS:
             await self._mount_and_scroll(
                 ErrorMessage(
                     "Usage: /plan <project_description>",
@@ -536,27 +524,32 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
             return
-        
+
         project_description = parts[1]
-        
-        await self._mount_and_scroll(UserCommandMessage(f"Generating plan for: {project_description}..."))
-        
-        planning_result = self._collaborative_integration.collaborative_agent.start_project(
-            project_name="Current Project",
-            project_description=project_description
+
+        await self._mount_and_scroll(
+            UserCommandMessage(f"Generating plan for: {project_description}...")
         )
-        
+
+        planning_result = (
+            self._collaborative_integration.collaborative_agent.start_project(
+                project_name="Current Project", project_description=project_description
+            )
+        )
+
         plan = planning_result.get("development_plan")
-        
-        if isinstance(plan, str): # Handle cases where plan parsing failed in model_coordinator
-             await self._mount_and_scroll(
+
+        if isinstance(
+            plan, str
+        ):  # Handle cases where plan parsing failed in model_coordinator
+            await self._mount_and_scroll(
                 ErrorMessage(
                     f"Failed to generate a parseable plan. Raw plan: {plan}",
                     collapsed=self._tools_collapsed,
                 )
             )
-             return
-        
+            return
+
         if plan:
             plan_message = (
                 f"**Generated Development Plan:**\n\n"
@@ -566,27 +559,31 @@ class VibeApp(App):  # noqa: PLR0904
             )
             for i, task in enumerate(plan):
                 plan_message += (
-                    f"  {i+1}. **Name**: {task.get('name', 'N/A')}\n"
+                    f"  {i + 1}. **Name**: {task.get('name', 'N/A')}\n"
                     f"     **Type**: {task.get('task_type', 'N/A')}\n"
                     f"     **Description**: {task.get('description', 'N/A')}\n"
                     f"     **Priority**: {task.get('priority', 'N/A')}\n"
                     f"     **Dependencies**: {', '.join(task.get('dependencies', [])) or 'None'}\n"
                 )
             plan_message += "\nDo you approve this plan? (yes/no)"
-            
+
             await self._mount_and_scroll(UserCommandMessage(plan_message))
-            
+
             # This is a placeholder for user approval. In a real Textual UI,
             # this would involve switching to an ApprovalApp or similar widget.
             # For now, we'll prompt the user in the chat.
             # The agent would then wait for a "yes" or "no" response.
             # This part will require more advanced Textual UI interaction.
-            await self._mount_and_scroll(AssistantMessage("Please type 'yes' to approve or 'no' to reject the plan."))
-            
+            await self._mount_and_scroll(
+                AssistantMessage(
+                    "Please type 'yes' to approve or 'no' to reject the plan."
+                )
+            )
+
             # This is where the interactive approval would happen.
             # For now, I'll return, and assume the user's next input will be 'yes' or 'no'.
-            self._pending_plan_approval = plan # Store plan for later approval
-            self._pending_plan_description = project_description # Store description
+            self._pending_plan_approval = plan  # Store plan for later approval
+            self._pending_plan_description = project_description  # Store description
             return
 
     async def _handle_user_message(self, message: str) -> None:
@@ -597,19 +594,33 @@ class VibeApp(App):  # noqa: PLR0904
         await self._mount_and_scroll(user_message)
 
         # Check for plan approval response
-        if hasattr(self, '_pending_plan_approval') and self._pending_plan_approval:
-            if message.lower() == 'yes':
-                await self._mount_and_scroll(UserCommandMessage("Plan approved. Initiating Ralph loop..."))
-                result = self._collaborative_integration.start_ralph_loop(self._pending_plan_approval)
+        if hasattr(self, "_pending_plan_approval") and self._pending_plan_approval:
+            if message.lower() == "yes":
+                await self._mount_and_scroll(
+                    UserCommandMessage("Plan approved. Initiating Ralph loop...")
+                )
+                result = self._collaborative_integration.start_ralph_loop(
+                    self._pending_plan_approval
+                )
                 if result.get("status") == "Ralph loop initiated":
-                     await self._mount_and_scroll(UserCommandMessage(f"Ralph loop started successfully with {result.get('total_tasks')} tasks."))
+                    await self._mount_and_scroll(
+                        UserCommandMessage(
+                            f"Ralph loop started successfully with {result.get('total_tasks')} tasks."
+                        )
+                    )
                 else:
-                     await self._mount_and_scroll(ErrorMessage(f"Failed to start Ralph loop: {result.get('message', 'Unknown error')}"))
+                    await self._mount_and_scroll(
+                        ErrorMessage(
+                            f"Failed to start Ralph loop: {result.get('message', 'Unknown error')}"
+                        )
+                    )
                 del self._pending_plan_approval
                 del self._pending_plan_description
                 return
-            elif message.lower() == 'no':
-                await self._mount_and_scroll(UserCommandMessage("Plan rejected. No Ralph loop initiated."))
+            elif message.lower() == "no":
+                await self._mount_and_scroll(
+                    UserCommandMessage("Plan rejected. No Ralph loop initiated.")
+                )
                 del self._pending_plan_approval
                 del self._pending_plan_description
                 return
@@ -669,7 +680,6 @@ class VibeApp(App):  # noqa: PLR0904
             agent = Agent(
                 self.config,
                 plan_manager=self._plan_manager,
-                todo_manager=self._todo_manager,
                 mode=self._current_agent_mode,
                 enable_streaming=self.enable_streaming,
                 collaborative_integration=self._collaborative_integration,
@@ -711,7 +721,7 @@ class VibeApp(App):  # noqa: PLR0904
         widgets_to_mount: list[Widget] = []
         assistant_widgets: list[AssistantMessage] = []
 
-        # We don't use batch_update() here anymore. 
+        # We don't use batch_update() here anymore.
         # Mounting everything at once is much faster and avoids potential deadlocks.
         for msg in self._loaded_messages:
             if msg.role == Role.system:
@@ -733,7 +743,9 @@ class VibeApp(App):  # noqa: PLR0904
                             tool_name = tool_call.function.name or "unknown"
                             if tool_call.id:
                                 tool_call_map[tool_call.id] = tool_name
-                            widgets_to_mount.append(ToolCallMessage(tool_name=tool_name))
+                            widgets_to_mount.append(
+                                ToolCallMessage(tool_name=tool_name)
+                            )
 
                 case Role.tool:
                     tool_name = msg.name or tool_call_map.get(
@@ -746,7 +758,7 @@ class VibeApp(App):  # noqa: PLR0904
                             collapsed=self._tools_collapsed,
                         )
                     )
-        
+
         if widgets_to_mount:
             await messages_area.mount(*widgets_to_mount)
             # After mounting, we can safely update the markdown content
@@ -788,10 +800,7 @@ class VibeApp(App):  # noqa: PLR0904
         return self._agent_init_task
 
     async def _approval_callback(
-        self,
-        tool: str,
-        args: BaseModel,
-        tool_call_id: str,
+        self, tool: str, args: BaseModel, tool_call_id: str
     ) -> tuple[ApprovalResponse, str | None]:
         self._pending_approval = asyncio.Future()
         await self._switch_to_approval_app(tool, args)
@@ -810,7 +819,6 @@ class VibeApp(App):  # noqa: PLR0904
         loading = LoadingWidget()
         self._loading_widget = loading
         await loading_area.mount(loading)
-
 
         try:
             rendered_prompt = render_path_prompt(
@@ -897,7 +905,6 @@ class VibeApp(App):  # noqa: PLR0904
         await loading_area.remove_children()
         self._loading_widget = None
 
-
         await self._finalize_current_streaming_message()
         await self._mount_and_scroll(InterruptMessage())
 
@@ -922,31 +929,37 @@ class VibeApp(App):  # noqa: PLR0904
 
     async def _set_autocompact_limit(self, user_input: str) -> None:
         parts = user_input.split(maxsplit=1)
-        if len(parts) < 2:
+        if len(parts) < MIN_SPLIT_PARTS:
             self.post_message(AssistantMessage("Usage: /autocompactlimit <percentage>"))
             return
 
         try:
             percentage = float(parts[1])
-            if not (0 < percentage <= 100):
+            if not (0 < percentage <= MAX_PERCENTAGE):
                 self.post_message(
                     AssistantMessage("Percentage must be between 0 and 100.")
                 )
                 return
-            
+
             self.config.auto_compact_threshold = percentage / 100
-            VibeConfig.save_updates({"auto_compact_threshold": self.config.auto_compact_threshold})
+            VibeConfig.save_updates({
+                "auto_compact_threshold": self.config.auto_compact_threshold
+            })
             self.post_message(
                 AssistantMessage(
                     f"Autocompaction limit set to {percentage:.0f}% of context size."
                 )
             )
         except ValueError:
-            self.post_message(AssistantMessage("Invalid percentage. Please enter a number."))
+            self.post_message(
+                AssistantMessage("Invalid percentage. Please enter a number.")
+            )
 
     async def _toggle_autocompact(self) -> None:
         self.config.autocompaction_enabled = not self.config.autocompaction_enabled
-        VibeConfig.save_updates({"autocompaction_enabled": self.config.autocompaction_enabled})
+        VibeConfig.save_updates({
+            "autocompaction_enabled": self.config.autocompaction_enabled
+        })
         self.post_message(
             AssistantMessage(
                 f"Autocompaction is now {'ENABLED' if self.config.autocompaction_enabled else 'DISABLED'}."
@@ -963,16 +976,15 @@ class VibeApp(App):  # noqa: PLR0904
             )
             return
 
-        parts = user_input.split(maxsplit=2) # e.g., "/ralph start {json_plan}"
-        if len(parts) < 3:
+        parts = user_input.split(maxsplit=2)  # e.g., "/ralph start {json_plan}"
+        if len(parts) < MIN_RALPH_PARTS:
             await self._mount_and_scroll(
                 ErrorMessage(
-                    "Usage: /ralph start <JSON_PLAN>",
-                    collapsed=self._tools_collapsed,
+                    "Usage: /ralph start <JSON_PLAN>", collapsed=self._tools_collapsed
                 )
             )
             return
-        
+
         plan_str = parts[2]
         try:
             plan_data = json.loads(plan_str)
@@ -980,32 +992,37 @@ class VibeApp(App):  # noqa: PLR0904
             if not isinstance(plan_data, list):
                 raise ValueError("Plan must be a JSON list of tasks.")
             for task in plan_data:
-                if not isinstance(task, dict) or "task_type" not in task or "description" not in task or "name" not in task:
-                    raise ValueError("Each task in the plan must be an object with 'name', 'task_type', and 'description'.")
+                if (
+                    not isinstance(task, dict)
+                    or "task_type" not in task
+                    or "description" not in task
+                    or "name" not in task
+                ):
+                    raise ValueError(
+                        "Each task in the plan must be an object with 'name', 'task_type', and 'description'."
+                    )
                 # Validate task_type string against TaskType enum
                 if task["task_type"] not in [tt.name for tt in TaskType]:
-                    raise ValueError(f"Invalid TaskType: {task['task_type']}. Must be one of {[tt.name for tt in TaskType]}.")
+                    raise ValueError(
+                        f"Invalid TaskType: {task['task_type']}. Must be one of {[tt.name for tt in TaskType]}."
+                    )
 
         except json.JSONDecodeError as e:
             await self._mount_and_scroll(
-                ErrorMessage(
-                    f"Invalid JSON plan: {e}",
-                    collapsed=self._tools_collapsed,
-                )
+                ErrorMessage(f"Invalid JSON plan: {e}", collapsed=self._tools_collapsed)
             )
             return
         except ValueError as e:
             await self._mount_and_scroll(
                 ErrorMessage(
-                    f"Invalid plan structure: {e}",
-                    collapsed=self._tools_collapsed,
+                    f"Invalid plan structure: {e}", collapsed=self._tools_collapsed
                 )
             )
             return
-        
+
         result = self._collaborative_integration.start_ralph_loop(plan_data)
-        
-        if result.get("success", True): # Assume success if key not present
+
+        if result.get("success", True):  # Assume success if key not present
             await self._mount_and_scroll(
                 UserCommandMessage(
                     f"Ralph loop initiated with {result.get('total_tasks')} tasks. "
@@ -1029,9 +1046,9 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
             return
-        
+
         status_result = self._collaborative_integration.get_ralph_loop_status()
-        
+
         status_message = (
             f"**Ralph Loop Status:**\n"
             f"- Active: {status_result['loop_active']}\n"
@@ -1044,7 +1061,7 @@ class VibeApp(App):  # noqa: PLR0904
             f"- Blocked: {status_result['blocked_tasks']}\n"
             f"Next Steps: {status_result['next_steps']}"
         )
-        
+
         await self._mount_and_scroll(UserCommandMessage(status_message))
 
     async def _execute_next_ralph_task(self, user_input: str) -> None:
@@ -1056,9 +1073,9 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
             return
-        
+
         result = self._collaborative_integration.execute_next_ralph_task()
-        
+
         if result.get("status") == "no_tasks":
             await self._mount_and_scroll(
                 UserCommandMessage("No tasks available in the Ralph loop to execute.")
@@ -1080,11 +1097,13 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
             return
-        
-        await self._mount_and_scroll(UserCommandMessage("Executing all pending Ralph loop tasks..."))
-        
+
+        await self._mount_and_scroll(
+            UserCommandMessage("Executing all pending Ralph loop tasks...")
+        )
+
         result = self._collaborative_integration.execute_all_ralph_tasks()
-        
+
         if result.get("status") == "all_tasks_completed":
             await self._mount_and_scroll(
                 UserCommandMessage(
@@ -1098,7 +1117,6 @@ class VibeApp(App):  # noqa: PLR0904
                     f"Error executing all Ralph tasks: {result.get('message', 'Unknown error')}",
                     collapsed=self._tools_collapsed,
                 )
-                
             )
 
     async def _cancel_ralph_loop(self, user_input: str) -> None:
@@ -1110,9 +1128,9 @@ class VibeApp(App):  # noqa: PLR0904
                 )
             )
             return
-        
+
         result = self._collaborative_integration.cancel_ralph_loop()
-        
+
         if result.get("success"):
             await self._mount_and_scroll(
                 UserCommandMessage("Ralph loop cancelled. All pending tasks cleared.")
@@ -1124,7 +1142,6 @@ class VibeApp(App):  # noqa: PLR0904
                     collapsed=self._tools_collapsed,
                 )
             )
-
 
     async def _show_config(self) -> None:
         """Switch to the configuration app in the bottom panel."""
@@ -1178,7 +1195,6 @@ class VibeApp(App):  # noqa: PLR0904
             await self._finalize_current_streaming_message()
             messages_area = self.query_one("#messages")
             await messages_area.remove_children()
-
 
             if self._context_progress and self.agent:
                 current_state = self._context_progress.tokens
@@ -1356,11 +1372,7 @@ class VibeApp(App):  # noqa: PLR0904
 
         self.call_after_refresh(config_app.focus)
 
-    async def _switch_to_approval_app(
-        self,
-        tool: str,
-        args: BaseModel,
-    ) -> None:
+    async def _switch_to_approval_app(self, tool: str, args: BaseModel) -> None:
         bottom_container = self.query_one("#bottom-app-container")
 
         try:
@@ -1501,8 +1513,6 @@ class VibeApp(App):  # noqa: PLR0904
                 error_msg.set_collapsed(self._tools_collapsed)
         except Exception:
             pass
-
-
 
     async def action_toggle_todo(self) -> None:
         self._todos_collapsed = not self._todos_collapsed
@@ -1657,11 +1667,11 @@ class VibeApp(App):  # noqa: PLR0904
             self._current_streaming_reasoning = None
         else:
             await self._finalize_current_streaming_message()
-            
+
             # Use batched UI update for better performance
-            def mount_widget():
+            def mount_widget() -> None:
                 messages_area.mount(widget)
-            
+
             self._batch_ui_update(mount_widget)
 
             is_tool_message = isinstance(widget, (ToolCallMessage, ToolResultMessage))

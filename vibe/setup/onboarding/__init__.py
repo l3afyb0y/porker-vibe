@@ -1,3 +1,8 @@
+"""Onboarding Module.
+
+Handles the initial setup and configuration flow for new users.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -19,6 +24,8 @@ from vibe.setup.onboarding.screens import (
 
 
 class OnboardingApp(App[str | None]):
+    """Textual App for onboarding new users."""
+
     CSS_PATH = "onboarding.tcss"
 
     def __init__(self) -> None:
@@ -37,6 +44,7 @@ class OnboardingApp(App[str | None]):
 
 
 def run_onboarding(app: App | None = None) -> None:
+    """Run the onboarding process."""
     result = (app or OnboardingApp()).run()
     match result:
         case None:

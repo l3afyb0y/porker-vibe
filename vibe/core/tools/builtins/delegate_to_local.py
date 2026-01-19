@@ -1,17 +1,22 @@
-"""
-Delegate to Local Model Tool
+"""Delegate to Local Model Tool.
 
 This tool allows Devstral to delegate tasks to the local model (e.g., Deepseek-Coder-v2)
 for implementation, documentation, and maintenance tasks.
 """
+
 from __future__ import annotations
 
 from enum import StrEnum, auto
-from typing import ClassVar, Optional
-from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
+from vibe.collaborative.ollama_detector import (
+    ModelRole as OllamaModelRole,
+    check_ollama_availability,
+    get_model_for_role,
+    get_ollama_endpoint,
+)
 from vibe.core.tools.base import (
     BaseTool,
     BaseToolConfig,
@@ -22,25 +27,17 @@ from vibe.core.tools.base import (
 from vibe.core.tools.ui import ToolCallDisplay, ToolResultDisplay, ToolUIData
 from vibe.core.types import ToolCallEvent, ToolResultEvent
 
-from vibe.collaborative.ollama_detector import (
-    get_local_model_from_env,
-    get_ollama_endpoint,
-    check_ollama_availability,
-    get_model_for_role,
-    get_all_configured_models,
-    ModelRole as OllamaModelRole,
-)
-
 
 class DelegateTaskType(StrEnum):
     """Types of tasks that can be delegated to the local model."""
-    CODE = auto()           # Write or modify code
+
+    CODE = auto()  # Write or modify code
     DOCUMENTATION = auto()  # Write or update documentation
-    REFACTOR = auto()       # Refactor existing code
-    GITIGNORE = auto()      # Update .gitignore
-    CLEANUP = auto()        # Clean up project files
-    TEST = auto()           # Write tests
-    REVIEW = auto()         # Review existing code
+    REFACTOR = auto()  # Refactor existing code
+    GITIGNORE = auto()  # Update .gitignore
+    CLEANUP = auto()  # Clean up project files
+    TEST = auto()  # Write tests
+    REVIEW = auto()  # Review existing code
 
 
 # Map task types to model roles
@@ -57,40 +54,44 @@ TASK_TO_MODEL_ROLE = {
 
 class DelegateArgs(BaseModel):
     """Arguments for delegating a task to the local model."""
+
     task_type: DelegateTaskType = Field(
         description="Type of task: 'code', 'documentation', 'refactor', 'gitignore', 'cleanup', 'test', or 'review'"
     )
     instruction: str = Field(
         description="Detailed instructions for the local model to execute"
     )
-    context: Optional[str] = Field(
+    context: str | None = Field(
         default=None,
-        description="Additional context like file contents, requirements, or constraints"
+        description="Additional context like file contents, requirements, or constraints",
     )
-    file_path: Optional[str] = Field(
+    file_path: str | None = Field(
         default=None,
-        description="Target file path if the task involves a specific file"
+        description="Target file path if the task involves a specific file",
     )
 
 
 class DelegateResult(BaseModel):
     """Result from the local model."""
+
     success: bool
     model_used: str
     task_type: str
     response: str
-    file_path: Optional[str] = None
+    file_path: str | None = None
 
 
 class DelegateConfig(BaseToolConfig):
     """Configuration for the delegate tool."""
+
     permission: ToolPermission = ToolPermission.ALWAYS
     timeout: int = 120  # seconds
 
 
 class DelegateState(BaseToolState):
     """State for the delegate tool."""
-    last_task_type: Optional[str] = None
+
+    last_task_type: str | None = None
     tasks_delegated: int = 0
 
 
@@ -98,8 +99,7 @@ class DelegateToLocal(
     BaseTool[DelegateArgs, DelegateResult, DelegateConfig, DelegateState],
     ToolUIData[DelegateArgs, DelegateResult],
 ):
-    """
-    Delegate implementation tasks to specialized local models.
+    """Delegate implementation tasks to specialized local models.
 
     USE THIS TOOL for:
     - Writing new code or modifying existing code → CODE model
@@ -145,7 +145,7 @@ class DelegateToLocal(
         if model_role:
             model = get_model_for_role(model_role)
             if model:
-                model_short = model.split(':')[0]  # Show just model name, not tag
+                model_short = model.split(":")[0]  # Show just model name, not tag
                 desc = f"{model_short}: {desc}"
 
         if args.file_path:
@@ -162,7 +162,7 @@ class DelegateToLocal(
         status = "completed" if result.success else "failed"
         return ToolResultDisplay(
             success=result.success,
-            message=f"Local model ({result.model_used}) {status}: {result.task_type}"
+            message=f"Local model ({result.model_used}) {status}: {result.task_type}",
         )
 
     @classmethod
@@ -203,11 +203,7 @@ class DelegateToLocal(
             endpoint = f"{get_ollama_endpoint()}/api/generate"
             response = requests.post(
                 endpoint,
-                json={
-                    "model": local_model,
-                    "prompt": prompt,
-                    "stream": False,
-                },
+                json={"model": local_model, "prompt": prompt, "stream": False},
                 timeout=self.config.timeout,
             )
             response.raise_for_status()
@@ -233,11 +229,10 @@ class DelegateToLocal(
                 "The task may be too complex or the model may be slow."
             )
         except requests.exceptions.RequestException as e:
-            raise ToolError(f"Failed to communicate with local model: {str(e)}")
+            raise ToolError(f"Failed to communicate with local model: {e!s}")
 
     def _build_prompt(self, args: DelegateArgs) -> str:
         """Build a detailed prompt for the local model."""
-
         task_instructions = {
             DelegateTaskType.CODE: (
                 "You are a code implementation specialist. Write clean, efficient, "
@@ -274,29 +269,16 @@ class DelegateToLocal(
         }
 
         role_instruction = task_instructions.get(
-            args.task_type,
-            "You are a helpful coding assistant."
+            args.task_type, "You are a helpful coding assistant."
         )
 
-        prompt_parts = [
-            role_instruction,
-            "",
-            "## Task",
-            args.instruction,
-        ]
+        prompt_parts = [role_instruction, "", "## Task", args.instruction]
 
         if args.file_path:
-            prompt_parts.extend([
-                "",
-                f"## Target File: {args.file_path}",
-            ])
+            prompt_parts.extend(["", f"## Target File: {args.file_path}"])
 
         if args.context:
-            prompt_parts.extend([
-                "",
-                "## Context",
-                args.context,
-            ])
+            prompt_parts.extend(["", "## Context", args.context])
 
         prompt_parts.extend([
             "",

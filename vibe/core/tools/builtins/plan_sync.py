@@ -1,5 +1,4 @@
-"""
-PlanSync Tool - Synchronize todos with PLAN.md
+"""PlanSync Tool - Synchronize todos with PLAN.md
 
 Helps agents manage the relationship between high-level planning (PLAN.md)
 and immediate task tracking (todos).
@@ -7,44 +6,55 @@ and immediate task tracking (todos).
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, final
 
 from pydantic import BaseModel, Field
 
-from vibe.core.tools.base import (
-    BaseTool,
-    BaseToolConfig,
-    BaseToolState,
-    ToolPermission,
-)
+from vibe.core.tools.base import BaseTool, BaseToolConfig, BaseToolState, ToolPermission
 from vibe.core.tools.ui import ToolCallDisplay, ToolResultDisplay, ToolUIData
 
 if TYPE_CHECKING:
     from vibe.core.types import ToolCallEvent, ToolResultEvent
 
 
+class PlanSyncAction(StrEnum):
+    """Actions for the PlanSync tool."""
+
+    READ = "read"
+    GET_NEXT_STEPS = "get_next_steps"
+
+
 class PlanSyncArgs(BaseModel):
     """Arguments for the PlanSync tool."""
-    action: str = Field(
+
+    action: PlanSyncAction = Field(
         description="Action to perform: 'read' to read PLAN.md, 'get_next_steps' to extract next steps from PLAN.md"
     )
 
 
 class PlanSyncResult(BaseModel):
     """Result from the PlanSync tool."""
-    action: str
-    content: str | None = Field(default=None, description="Content from PLAN.md (if action was 'read')")
-    next_steps: list[str] | None = Field(default=None, description="List of next steps (if action was 'get_next_steps')")
+
+    action: PlanSyncAction
+    content: str | None = Field(
+        default=None, description="Content from PLAN.md (if action was 'read')"
+    )
+    next_steps: list[str] | None = Field(
+        default=None, description="List of next steps (if action was 'get_next_steps')"
+    )
     message: str = Field(description="Status message")
 
 
 class PlanSyncConfig(BaseToolConfig):
     """Configuration for the PlanSync tool."""
+
     permission: ToolPermission = ToolPermission.ALWAYS
 
 
 class PlanSyncState(BaseToolState):
     """State for the PlanSync tool."""
+
     pass
 
 
@@ -52,8 +62,7 @@ class PlanSync(
     BaseTool[PlanSyncArgs, PlanSyncResult, PlanSyncConfig, PlanSyncState],
     ToolUIData[PlanSyncArgs, PlanSyncResult],
 ):
-    """
-    Synchronize todos with PLAN.md - the project's high-level planning document.
+    """Synchronize todos with PLAN.md - the project's high-level planning document.
 
     Use this tool to:
     - Read the current PLAN.md to understand project goals and status
@@ -75,69 +84,63 @@ class PlanSync(
     @final
     async def run(self, args: PlanSyncArgs) -> PlanSyncResult:
         # Get the plan document manager from the agent's context
-        if not hasattr(self, '_plan_document_manager'):
+        if not hasattr(self, "_plan_document_manager"):
             return PlanSyncResult(
-                action=args.action,
-                message="Plan document manager not initialized",
+                action=args.action, message="Plan document manager not initialized"
             )
 
-        if args.action == "read":
+        if args.action == PlanSyncAction.READ:
             content = self._plan_document_manager.read()
             if content is None:
                 return PlanSyncResult(
-                    action="read",
+                    action=PlanSyncAction.READ,
                     content=None,
                     message="PLAN.md does not exist. Consider creating it to guide your work.",
                 )
             return PlanSyncResult(
-                action="read",
+                action=PlanSyncAction.READ,
                 content=content,
                 message=f"Read PLAN.md ({len(content)} characters)",
             )
 
-        elif args.action == "get_next_steps":
+        if args.action == PlanSyncAction.GET_NEXT_STEPS:
             if not self._plan_document_manager.exists:
                 return PlanSyncResult(
-                    action="get_next_steps",
+                    action=PlanSyncAction.GET_NEXT_STEPS,
                     next_steps=[],
                     message="PLAN.md does not exist. Create it first to define next steps.",
                 )
 
             next_steps = self._plan_document_manager.extract_next_steps()
             return PlanSyncResult(
-                action="get_next_steps",
+                action=PlanSyncAction.GET_NEXT_STEPS,
                 next_steps=next_steps,
                 message=f"Extracted {len(next_steps)} next steps from PLAN.md",
             )
 
-        else:
-            return PlanSyncResult(
-                action=args.action,
-                message=f"Unknown action: {args.action}. Use 'read' or 'get_next_steps'.",
-            )
+        return PlanSyncResult(
+            action=args.action,
+            message=f"Unknown action: {args.action}. Use 'read' or 'get_next_steps'.",
+        )
 
     def get_call_display(self, event: ToolCallEvent) -> ToolCallDisplay:
         """Display format for tool call in TUI."""
         # Use event.args directly - it's already validated
         if not isinstance(event.args, PlanSyncArgs):
             return ToolCallDisplay(
-                title="Sync with PLAN.md",
-                detail="Invalid arguments type",
+                title="Sync with PLAN.md", detail="Invalid arguments type"
             )
 
         args = event.args
 
-        if args.action == "read":
+        if args.action == PlanSyncAction.READ:
             detail = "Reading PLAN.md"
-        elif args.action == "get_next_steps":
+        elif args.action == PlanSyncAction.GET_NEXT_STEPS:
             detail = "Extracting next steps from PLAN.md"
         else:
             detail = f"Action: {args.action}"
 
-        return ToolCallDisplay(
-            title="Sync with PLAN.md",
-            detail=detail,
-        )
+        return ToolCallDisplay(title="Sync with PLAN.md", detail=detail)
 
     def get_result_display(self, event: ToolResultEvent) -> ToolResultDisplay:
         """Display format for tool result in TUI."""

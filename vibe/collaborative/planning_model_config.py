@@ -1,27 +1,26 @@
-"""
-Planning Model Configuration
+"""Planning Model Configuration.
 
 Handles configuration when VIBE_PLANNING_MODEL is set to use a local
 planning model via Ollama instead of Devstral via Mistral API.
 """
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from vibe.collaborative.ollama_detector import (
-    get_planning_model,
     get_ollama_endpoint,
+    get_planning_model,
     is_fully_local_mode,
 )
-from vibe.core.config import ProviderConfig, ModelConfig, Backend
+from vibe.core.config import Backend, ModelConfig, ProviderConfig
 
 if TYPE_CHECKING:
     from vibe.core.config import VibeConfig
 
 
-def configure_planning_model(config: "VibeConfig") -> "VibeConfig":
-    """
-    Configure Vibe to use a local planning model via Ollama if VIBE_PLANNING_MODEL is set.
+def configure_planning_model(config: VibeConfig) -> VibeConfig:
+    """Configure Vibe to use a local planning model via Ollama if VIBE_PLANNING_MODEL is set.
 
     Args:
         config: The VibeConfig to modify
@@ -50,9 +49,7 @@ def configure_planning_model(config: "VibeConfig") -> "VibeConfig":
         config.providers.append(ollama_provider)
 
     # Check if planning model already exists in config
-    planning_model_exists = any(
-        m.alias == "planning-local" for m in config.models
-    )
+    planning_model_exists = any(m.alias == "planning-local" for m in config.models)
 
     if not planning_model_exists:
         # Add the planning model
@@ -71,9 +68,8 @@ def configure_planning_model(config: "VibeConfig") -> "VibeConfig":
     return config
 
 
-def get_planning_model_status() -> dict:
-    """
-    Get status information about planning model configuration.
+def get_planning_model_status() -> dict[str, Any]:
+    """Get status information about planning model configuration.
 
     Returns:
         Dictionary with planning model status

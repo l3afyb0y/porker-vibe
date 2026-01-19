@@ -1,147 +1,157 @@
-from pathlib import Path
-from typing import Optional, Dict, Any
+"""Main collaborative agent that coordinates between Devstral-2 and Deepseek-Coder-v2.
+
+This agent implements the following workflow:
+1. Devstral-2 handles planning, architecture, and review
+2. Deepseek-Coder-v2 handles implementation, documentation, and maintenance
+3. Tasks are automatically distributed based on type
+4. Results are combined and reviewed iteratively
+"""
+
+from __future__ import annotations
+
 import json
-from logging import getLogger # Added import
+from logging import getLogger
+from pathlib import Path
+from typing import Any
 
-logger = getLogger(__name__) # Initialized logger
+from vibe.collaborative.model_coordinator import ModelCoordinator
+from vibe.collaborative.task_manager import ModelRole, TaskStatus, TaskType
 
-from .model_coordinator import ModelCoordinator
-from .task_manager import TaskManager, TaskType, ModelRole, TaskStatus
+logger = getLogger(__name__)
 
 
 class CollaborativeAgent:
-    """
-    Main collaborative agent that coordinates between Devstral-2 and Deepseek-Coder-v2.
-    
-    This agent implements the following workflow:
-    1. Devstral-2 handles planning, architecture, and review
-    2. Deepseek-Coder-v2 handles implementation, documentation, and maintenance
-    3. Tasks are automatically distributed based on type
-    4. Results are combined and reviewed iteratively
-    """
-    
-    def __init__(self, project_root: Optional[Path] = None):
+    """Main collaborative agent that coordinates between Devstral-2 and Deepseek-Coder-v2."""
+
+    def __init__(self, project_root: Path | None = None) -> None:
         """Initialize the collaborative agent."""
         self.project_root = project_root or Path.cwd()
         self.model_coordinator = ModelCoordinator(self.project_root)
         self.task_manager = self.model_coordinator.task_manager
-        
+
         # Initialize project metadata
         self._metadata_file = self._get_metadata_path()
         self.project_metadata = self._load_project_metadata()
-    
+
     def _get_metadata_path(self) -> Path:
         """Get the centralized path for project metadata."""
-        from vibe.core.paths.global_paths import VIBE_HOME
         import hashlib
-        
+
+        from vibe.core.paths.global_paths import VIBE_HOME
+
         project_name = self.project_root.name
-        path_hash = hashlib.sha256(str(self.project_root.resolve()).encode()).hexdigest()[:8]
-        
+        path_hash = hashlib.sha256(
+            str(self.project_root.resolve()).encode()
+        ).hexdigest()[:8]
+
         storage_dir = VIBE_HOME.path / "projects" / f"{project_name}_{path_hash}"
         storage_dir.mkdir(parents=True, exist_ok=True)
         return storage_dir / "metadata.json"
 
-    def _load_project_metadata(self) -> Dict[str, Any]:
+    def _load_project_metadata(self) -> dict[str, Any]:
         """Load or initialize project metadata."""
         if self._metadata_file.exists():
             try:
-                with open(self._metadata_file, 'r') as f:
+                with open(self._metadata_file, encoding="utf-8") as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
+            except (json.JSONDecodeError, OSError) as e:
                 logger.warning("Could not load project metadata: %s", e)
-        
+
         # Return default metadata
         return {
             "project_name": self.project_root.name,
             "collaborative_mode": True,
-            "models": {
-                "planner": "devstral-2",
-                "implementer": "deepseek-coder-v2"
-            }
+            "models": {"planner": "devstral-2", "implementer": "deepseek-coder-v2"},
         }
-    
-    def _save_project_metadata(self):
+
+    def _save_project_metadata(self) -> None:
         """Save project metadata."""
         self._metadata_file.parent.mkdir(exist_ok=True)
-        
-        with open(self._metadata_file, 'w') as f:
+
+        with open(self._metadata_file, "w", encoding="utf-8") as f:
             json.dump(self.project_metadata, f, indent=2)
-    
-    def start_project(self, project_name: str, project_description: str) -> Dict[str, Any]:
+
+    def start_project(
+        self, project_name: str, project_description: str
+    ) -> dict[str, Any]:
         """Start a new collaborative development project."""
         self.project_metadata["project_name"] = project_name
         self.project_metadata["description"] = project_description
         self._save_project_metadata()
-        
+
         # Start the collaborative session, which generates and parses the plan
-        plan_data = self.model_coordinator.start_collaborative_session(project_description)
-        
+        plan_data = self.model_coordinator.start_collaborative_session(
+            project_description
+        )
+
         return {
             "status": "Project planning complete",
             "project_name": project_name,
-            "development_plan": plan_data, # This will now be the parsed plan
-            "next_steps": "Review the plan and use start_ralph_loop() to begin implementation"
+            "development_plan": plan_data,  # This will now be the parsed plan
+            "next_steps": "Review the plan and use start_ralph_loop() to begin implementation",
         }
-    
-    def execute_next_task(self) -> Dict[str, Any]:
+
+    def execute_next_task(self) -> dict[str, Any]:
         """Execute the next task in the collaborative workflow."""
         task_id, result = self.model_coordinator.execute_next_task()
-        
+
         if task_id is None:
-            return {
-                "status": "no_tasks",
-                "message": result or "No tasks available"
-            }
-        
+            return {"status": "no_tasks", "message": result or "No tasks available"}
+
         return {
             "status": "completed",
             "task_id": task_id,
             "result": result,
-            "project_status": self.get_project_status()
+            "project_status": self.get_project_status(),
         }
-    
-    def execute_all_tasks(self) -> Dict[str, Any]:
+
+    def execute_all_tasks(self) -> dict[str, Any]:
         """Execute all pending tasks in the workflow."""
         results = []
-        
+
         while True:
             task_result = self.execute_next_task()
-            
+
             if task_result["status"] == "no_tasks":
                 break
-            
+
             results.append({
                 "task_id": task_result["task_id"],
-                "result": task_result["result"]
+                "result": task_result["result"],
             })
-        
+
         return {
             "status": "all_tasks_completed",
             "completed_tasks": len(results),
             "results": results,
-            "final_status": self.get_project_status()
+            "final_status": self.get_project_status(),
         }
-    
-    def add_custom_task(self, task_type: TaskType, description: str, 
-                       priority: int = 3, dependencies: Optional[list] = None) -> str:
+
+    def add_custom_task(
+        self,
+        task_type: TaskType,
+        description: str,
+        priority: int = 3,
+        dependencies: list | None = None,
+    ) -> str:
         """Add a custom task to the workflow."""
         task_id = self.task_manager.create_task(
             task_type=task_type,
             description=description,
             priority=priority,
-            dependencies=dependencies
+            dependencies=dependencies,
         )
-        
+
         # Auto-assign the task
         self.task_manager.auto_assign_tasks()
-        
+
         return task_id
 
-    def start_ralph_loop(self, plan: list[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Initializes and starts a Ralph Wiggum-like iterative loop based on a given plan.
-        The plan is a list of tasks with types, descriptions, names, and optional dependencies (referenced by name).
+    def start_ralph_loop(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
+        """Initialize and start a Ralph Wiggum-like iterative loop based on a given plan.
+
+        The plan is a list of tasks with types, descriptions, names, and optional
+        dependencies (referenced by name).
         """
         task_name_to_id = {}
         tasks_with_raw_dependencies = []
@@ -150,20 +160,26 @@ class CollaborativeAgent:
         for task_spec in plan:
             task_type = TaskType[task_spec["task_type"]]
             description = task_spec["description"]
-            task_name = task_spec.get("name") # Expecting a unique name for each task
+            task_name = task_spec.get("name")  # Expecting a unique name for each task
 
             if not task_name:
-                logger.warning("Task spec is missing a 'name' field. Skipping task: %s", description)
+                logger.warning(
+                    "Task spec is missing a 'name' field. Skipping task: %s",
+                    description,
+                )
                 continue
 
             task_id = self.task_manager.create_task(
                 task_type=task_type,
                 description=description,
                 priority=task_spec.get("priority", 3),
-                dependencies=[] # Initialize with empty dependencies
+                dependencies=[],  # Initialize with empty dependencies
             )
             task_name_to_id[task_name] = task_id
-            tasks_with_raw_dependencies.append((task_id, task_spec.get("dependencies", [])))
+            tasks_with_raw_dependencies.append((
+                task_id,
+                task_spec.get("dependencies", []),
+            ))
 
         # Second pass: Resolve dependencies using the created task_ids
         for task_id, raw_dependencies in tasks_with_raw_dependencies:
@@ -172,38 +188,45 @@ class CollaborativeAgent:
                 if dep_name in task_name_to_id:
                     resolved_dependencies.append(task_name_to_id[dep_name])
                 else:
-                    logger.warning(f"Dependency '{dep_name}' for task '{self.task_manager.tasks[task_id].description}' not found in the plan. Skipping this dependency.")
-            
+                    task_desc = self.task_manager.tasks[task_id].description
+                    logger.warning(
+                        "Dependency '%s' for task '%s' not found in the plan. Skipping this dependency.",
+                        dep_name,
+                        task_desc,
+                    )
+
             if resolved_dependencies:
                 self.task_manager.set_task_dependencies(task_id, resolved_dependencies)
-        
-        self.task_manager.auto_assign_tasks() # Auto-assign tasks after dependencies are set
+
+        self.task_manager.auto_assign_tasks()  # Auto-assign tasks after dependencies are set
 
         return {
             "status": "Ralph loop initiated",
             "total_tasks": len(task_name_to_id),
             "task_ids": list(task_name_to_id.values()),
-            "next_steps": "Use execute_next_task() to begin iterating through the plan."
+            "next_steps": "Use execute_next_task() to begin iterating through the plan.",
         }
-    
-    def get_project_status(self) -> Dict[str, Any]:
+
+    def get_project_status(self) -> dict[str, Any]:
         """Get the current status of the collaborative project."""
         status = self.model_coordinator.get_project_status()
-        
+
         return {
-            "project_name": self.project_metadata.get("project_name", "Unnamed Project"),
+            "project_name": self.project_metadata.get(
+                "project_name", "Unnamed Project"
+            ),
             "description": self.project_metadata.get("description", ""),
             "task_status": status["task_status"],
             "models": status["models_configured"],
             "pending_tasks": status["pending_tasks"],
             "completed_tasks": status["completed_tasks"],
-            "total_tasks": len(self.task_manager.tasks)
+            "total_tasks": len(self.task_manager.tasks),
         }
-    
-    def get_tasks_for_model(self, model_role: ModelRole) -> Dict[str, Any]:
+
+    def get_tasks_for_model(self, model_role: ModelRole) -> dict[str, Any]:
         """Get all tasks assigned to a specific model."""
         tasks = self.task_manager.get_tasks_by_model(model_role)
-        
+
         return {
             "model": model_role.value,
             "task_count": len(tasks),
@@ -213,16 +236,16 @@ class CollaborativeAgent:
                     "type": task.task_type.name,
                     "description": task.description,
                     "priority": task.priority,
-                    "status": task.status
+                    "status": task.status,
                 }
                 for task_id, task in tasks
-            ]
+            ],
         }
-    
-    def review_code(self, code_content: str, file_path: Optional[str] = None) -> str:
+
+    def review_code(self, code_content: str, file_path: str | None = None) -> str:
         """Request a code review from the planner model (Devstral-2)."""
         context = f"File: {file_path}\n\n" if file_path else ""
-        
+
         prompt = f"""{context}Please perform a comprehensive code review of the following code:
 
 ```
@@ -238,13 +261,13 @@ Your review should include:
 6. Suggestions for improvement
 
 Please provide your review in a structured format."""
-        
+
         return self.model_coordinator.query_model(ModelRole.PLANNER, prompt)
-    
-    def generate_documentation(self, subject: str, context: Optional[str] = None) -> str:
+
+    def generate_documentation(self, subject: str, context: str | None = None) -> str:
         """Generate documentation using the implementer model (Deepseek-Coder-v2)."""
         context_text = f"\n\nContext: {context}" if context else ""
-        
+
         prompt = f"""Please generate comprehensive documentation for the following subject:
 
 {subject}
@@ -260,9 +283,9 @@ The documentation should include:
 6. Troubleshooting information
 
 Please provide the documentation in Markdown format."""
-        
+
         return self.model_coordinator.query_model(ModelRole.IMPLEMENTER, prompt)
-    
+
     def refactor_code(self, code_content: str, requirements: str) -> str:
         """Request code refactoring from the implementer model."""
         prompt = f"""Please refactor the following code according to these requirements:
@@ -282,41 +305,44 @@ Please provide:
 4. Any breaking changes or considerations
 
 Refactored Code:"""
-        
+
         return self.model_coordinator.query_model(ModelRole.IMPLEMENTER, prompt)
-    
-    def configure_models(self, planner_endpoint: Optional[str] = None,
-                        implementer_endpoint: Optional[str] = None,
-                        planner_model: Optional[str] = None,
-                        implementer_model: Optional[str] = None):
+
+    def configure_models(
+        self,
+        planner_endpoint: str | None = None,
+        implementer_endpoint: str | None = None,
+        planner_model: str | None = None,
+        implementer_model: str | None = None,
+    ) -> dict[str, Any]:
         """Configure the model endpoints and names."""
         if planner_endpoint or planner_model:
             current_config = self.model_coordinator.models[ModelRole.PLANNER]
             self.model_coordinator.update_model_config(
                 ModelRole.PLANNER,
                 planner_model or current_config.model_name,
-                planner_endpoint or current_config.endpoint
+                planner_endpoint or current_config.endpoint,
             )
-        
+
         if implementer_endpoint or implementer_model:
             current_config = self.model_coordinator.models[ModelRole.IMPLEMENTER]
             self.model_coordinator.update_model_config(
                 ModelRole.IMPLEMENTER,
                 implementer_model or current_config.model_name,
-                implementer_endpoint or current_config.endpoint
+                implementer_endpoint or current_config.endpoint,
             )
-        
+
         # Update metadata
         if planner_model:
             self.project_metadata["models"]["planner"] = planner_model
         if implementer_model:
             self.project_metadata["models"]["implementer"] = implementer_model
-        
+
         self._save_project_metadata()
-        
+
         return self.get_project_status()
-    
-    def get_collaboration_summary(self) -> Dict[str, Any]:
+
+    def get_collaboration_summary(self) -> dict[str, Any]:
         """Get a summary of the collaborative work done so far."""
         return {
             "project": self.project_metadata,
@@ -324,24 +350,28 @@ Refactored Code:"""
                 "total_tasks": len(self.task_manager.tasks),
                 "completed_tasks": len(self.task_manager.completed_tasks),
                 "pending_tasks": len(self.task_manager.task_queue),
-                "planner_tasks": len(self.task_manager.get_tasks_by_model(ModelRole.PLANNER)),
-                "implementer_tasks": len(self.task_manager.get_tasks_by_model(ModelRole.IMPLEMENTER))
+                "planner_tasks": len(
+                    self.task_manager.get_tasks_by_model(ModelRole.PLANNER)
+                ),
+                "implementer_tasks": len(
+                    self.task_manager.get_tasks_by_model(ModelRole.IMPLEMENTER)
+                ),
             },
             "models_used": {
                 "planner": self.project_metadata["models"]["planner"],
-                "implementer": self.project_metadata["models"]["implementer"]
-            }
+                "implementer": self.project_metadata["models"]["implementer"],
+            },
         }
-    
-    def get_ralph_loop_status(self) -> Dict[str, Any]:
-        """
-        Get the current status of the ongoing Ralph Wiggum-like iterative loop.
+
+    def get_ralph_loop_status(self) -> dict[str, Any]:
+        """Get the current status of the ongoing Ralph Wiggum-like iterative loop.
+
         Provides an overview of tasks, their statuses, and overall progress.
         """
         task_status_counts = self.task_manager.get_task_status()
         total_tasks = len(self.task_manager.tasks)
         completed_tasks = task_status_counts.get(TaskStatus.COMPLETED.name, 0)
-        
+
         return {
             "loop_active": total_tasks > 0 and completed_tasks < total_tasks,
             "total_tasks": total_tasks,
@@ -353,5 +383,6 @@ Refactored Code:"""
             "blocked_tasks": task_status_counts.get(TaskStatus.BLOCKED.name, 0),
             "task_breakdown": task_status_counts,
             "next_steps": "Continue executing tasks using execute_next_task() or execute_all_tasks()."
-                           if total_tasks > 0 and completed_tasks < total_tasks else "Loop is completed or not started."
+            if total_tasks > 0 and completed_tasks < total_tasks
+            else "Loop is completed or not started.",
         }

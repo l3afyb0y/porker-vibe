@@ -1,37 +1,36 @@
-"""
-Ollama Server Management
+"""Ollama Server Management.
 
 Automatically starts and stops Ollama server when needed.
 Only manages Ollama if we started it - doesn't interfere with
 existing Ollama processes.
 """
+
 from __future__ import annotations
 
-import subprocess
-import time
 import atexit
 import signal
+import subprocess
 import sys
-from typing import Optional
-from pathlib import Path
+import time
+from types import FrameType
 
-from vibe.collaborative.ollama_detector import (
-    check_ollama_availability,
-    get_ollama_endpoint,
-)
+from vibe.collaborative.ollama_detector import check_ollama_availability
+
+OLLAMA_START_TIMEOUT = 5.0
+OLLAMA_CHECK_INTERVAL = 0.5
+PROCESS_TERM_TIMEOUT = 3.0
 
 
 class OllamaManager:
     """Manages Ollama server lifecycle."""
 
-    def __init__(self):
-        self._ollama_process: Optional[subprocess.Popen] = None
+    def __init__(self) -> None:
+        self._ollama_process: subprocess.Popen[str] | None = None
         self._we_started_ollama = False
         self._cleanup_registered = False
 
     def ensure_ollama_running(self) -> tuple[bool, str]:
-        """
-        Ensure Ollama is running, starting it if necessary.
+        """Ensure Ollama is running, starting it if necessary.
 
         Returns:
             Tuple of (success, message)
@@ -46,8 +45,7 @@ class OllamaManager:
         return self._start_ollama()
 
     def _start_ollama(self) -> tuple[bool, str]:
-        """
-        Start Ollama server as a background process.
+        """Start Ollama server as a background process.
 
         Returns:
             Tuple of (success, message)
@@ -55,14 +53,14 @@ class OllamaManager:
         try:
             # Check if ollama command exists
             result = subprocess.run(
-                ["which", "ollama"],
-                capture_output=True,
-                text=True,
-                timeout=2,
+                ["which", "ollama"], capture_output=True, text=True, timeout=2
             )
 
             if result.returncode != 0:
-                return False, "Ollama not installed. Install with: curl -fsSL https://ollama.ai/install.sh | sh"
+                return (
+                    False,
+                    "Ollama not installed. Install with: curl -fsSL https://ollama.ai/install.sh | sh",
+                )
 
             # Start Ollama in the background
             # Redirect stdout/stderr to avoid polluting the terminal
@@ -85,9 +83,9 @@ class OllamaManager:
                 self._cleanup_registered = True
 
             # Wait a bit for Ollama to start
-            max_wait = 5  # seconds
-            wait_interval = 0.5  # seconds
-            elapsed = 0
+            max_wait = OLLAMA_START_TIMEOUT
+            wait_interval = OLLAMA_CHECK_INTERVAL
+            elapsed = 0.0
 
             while elapsed < max_wait:
                 time.sleep(wait_interval)
@@ -104,9 +102,9 @@ class OllamaManager:
         except subprocess.TimeoutExpired:
             return False, "Timeout checking for Ollama installation"
         except Exception as e:
-            return False, f"Failed to start Ollama: {str(e)}"
+            return False, f"Failed to start Ollama: {e!s}"
 
-    def _stop_ollama(self):
+    def _stop_ollama(self) -> None:
         """Stop Ollama if we started it."""
         if self._we_started_ollama and self._ollama_process:
             try:
@@ -115,7 +113,7 @@ class OllamaManager:
 
                 # Wait up to 3 seconds for graceful shutdown
                 try:
-                    self._ollama_process.wait(timeout=3)
+                    self._ollama_process.wait(timeout=PROCESS_TERM_TIMEOUT)
                 except subprocess.TimeoutExpired:
                     # Force kill if it doesn't stop gracefully
                     self._ollama_process.kill()
@@ -128,11 +126,11 @@ class OllamaManager:
                 self._ollama_process = None
                 self._we_started_ollama = False
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         """Cleanup handler called on exit."""
         self._stop_ollama()
 
-    def _signal_handler(self, signum, frame):
+    def _signal_handler(self, signum: int, frame: FrameType | None) -> None:
         """Handle termination signals."""
         self._cleanup()
         # Re-raise the signal to allow normal termination
@@ -144,7 +142,7 @@ class OllamaManager:
 
 
 # Global instance
-_manager: Optional[OllamaManager] = None
+_manager: OllamaManager | None = None
 
 
 def get_ollama_manager() -> OllamaManager:
@@ -156,8 +154,7 @@ def get_ollama_manager() -> OllamaManager:
 
 
 def ensure_ollama_running() -> tuple[bool, str]:
-    """
-    Ensure Ollama is running, starting it if needed.
+    """Ensure Ollama is running, starting it if needed.
 
     Returns:
         Tuple of (success, message)
@@ -165,7 +162,7 @@ def ensure_ollama_running() -> tuple[bool, str]:
     return get_ollama_manager().ensure_ollama_running()
 
 
-def cleanup_ollama():
+def cleanup_ollama() -> None:
     """Stop Ollama if we started it."""
     if _manager:
         _manager._cleanup()

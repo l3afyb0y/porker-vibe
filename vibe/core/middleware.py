@@ -1,22 +1,23 @@
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
-from typing import Any, Callable, Protocol, TYPE_CHECKING
 import json
-from collections import deque
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from vibe.core.modes import AgentMode
-from vibe.core.utils import VIBE_WARNING_TAG, VIBE_STOP_EVENT_TAG
 from vibe.core.types import Role
+from vibe.core.utils import VIBE_STOP_EVENT_TAG, VIBE_WARNING_TAG
 
 if TYPE_CHECKING:
     from vibe.collaborative.vibe_integration import CollaborativeVibeIntegration
     from vibe.core.config import VibeConfig
+    from vibe.core.plan_manager import PlanManager
+    from vibe.core.planning_models import ItemStatus
     from vibe.core.types import AgentStats, LLMMessage
-    from vibe.core.plan_manager import PlanManager # To interact with the plan
-    from vibe.core.planning_models import ItemStatus, PlanItem # For statuses
 
 
 class MiddlewareAction(StrEnum):
@@ -56,13 +57,13 @@ class ConversationMiddleware(Protocol):
 
 
 class LoopDetectionMiddleware:
-    """
-    Detects repetitive patterns in LLM responses and tool calls to prevent infinite loops.
-    """
+    """Detects repetitive patterns in LLM responses and tool calls to prevent infinite loops."""
 
     # Configuration for loop detection
     LOOP_WINDOW_SIZE = 5  # Number of past turns to consider for repetition
-    LOOP_REPETITION_THRESHOLD = 3  # Number of times a pattern must repeat to trigger a warning
+    LOOP_REPETITION_THRESHOLD = (
+        3  # Number of times a pattern must repeat to trigger a warning
+    )
     MAX_CONSECUTIVE_LOOPS = 3  # Number of consecutive loop detections before stopping
 
     def __init__(self) -> None:
@@ -77,8 +78,7 @@ class LoopDetectionMiddleware:
             warning = self._pending_warning
             self._pending_warning = None
             return MiddlewareResult(
-                action=MiddlewareAction.INJECT_MESSAGE,
-                message=warning,
+                action=MiddlewareAction.INJECT_MESSAGE, message=warning
             )
         return MiddlewareResult()
 
@@ -92,7 +92,11 @@ class LoopDetectionMiddleware:
             if message.tool_calls:
                 for tc in message.tool_calls:
                     # Store a consistent representation of the tool call
-                    args_str = json.dumps(tc.function.arguments) if tc.function and tc.function.arguments else "{}"
+                    args_str = (
+                        json.dumps(tc.function.arguments)
+                        if tc.function and tc.function.arguments
+                        else "{}"
+                    )
                     current_turn_tool_calls.append(f"{tc.function.name}:{args_str}")
 
         if current_turn_llm_response:
@@ -101,28 +105,7 @@ class LoopDetectionMiddleware:
             # Join all tool calls of the turn into a single string for sequence detection
             self._recent_tool_calls.append("|".join(current_turn_tool_calls))
 
-        loop_detected = False
-        loop_reason = ""
-
-        # Check for repetitive LLM responses
-        if len(self._recent_llm_responses) == self.LOOP_WINDOW_SIZE:
-            for i in range(self.LOOP_WINDOW_SIZE - self.LOOP_REPETITION_THRESHOLD):
-                pattern = list(self._recent_llm_responses)[i : i + self.LOOP_REPETITION_THRESHOLD]
-                remaining = list(self._recent_llm_responses)[i + self.LOOP_REPETITION_THRESHOLD :]
-                if len(pattern) > 0 and all(p == pattern[0] for p in pattern) and any(p == pattern[0] for p in remaining):
-                    loop_detected = True
-                    loop_reason = "repetitive LLM responses"
-                    break
-
-        # Check for repetitive tool calls (sequences)
-        if not loop_detected and len(self._recent_tool_calls) == self.LOOP_WINDOW_SIZE:
-            for i in range(self.LOOP_WINDOW_SIZE - self.LOOP_REPETITION_THRESHOLD):
-                pattern = list(self._recent_tool_calls)[i : i + self.LOOP_REPETITION_THRESHOLD]
-                remaining = list(self._recent_tool_calls)[i + self.LOOP_REPETITION_THRESHOLD :]
-                if len(pattern) > 0 and all(p == pattern[0] for p in pattern) and any(p == pattern[0] for p in remaining):
-                    loop_detected = True
-                    loop_reason = "repetitive tool calls"
-                    break
+        loop_detected, loop_reason = self._detect_loop()
 
         if loop_detected:
             self._consecutive_loop_detections += 1
@@ -142,6 +125,37 @@ class LoopDetectionMiddleware:
 
         return MiddlewareResult()
 
+    def _detect_loop(self) -> tuple[bool, str]:
+        """Check for repetitive patterns in responses and tool calls."""
+        if len(self._recent_llm_responses) == self.LOOP_WINDOW_SIZE:
+            result = self._check_for_repetition(
+                list(self._recent_llm_responses), "repetitive LLM responses"
+            )
+            if result[0]:
+                return result
+
+        if len(self._recent_tool_calls) == self.LOOP_WINDOW_SIZE:
+            result = self._check_for_repetition(
+                list(self._recent_tool_calls), "repetitive tool calls"
+            )
+            if result[0]:
+                return result
+
+        return False, ""
+
+    def _check_for_repetition(self, items: list[str], reason: str) -> tuple[bool, str]:
+        """Check if items contain a repeating pattern."""
+        for i in range(self.LOOP_WINDOW_SIZE - self.LOOP_REPETITION_THRESHOLD):
+            pattern = items[i : i + self.LOOP_REPETITION_THRESHOLD]
+            remaining = items[i + self.LOOP_REPETITION_THRESHOLD :]
+            if (
+                len(pattern) > 0
+                and all(p == pattern[0] for p in pattern)
+                and any(p == pattern[0] for p in remaining)
+            ):
+                return True, reason
+        return False, ""
+
     def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
         self._recent_tool_calls.clear()
         self._recent_llm_responses.clear()
@@ -149,17 +163,17 @@ class LoopDetectionMiddleware:
         self._pending_warning = None
 
 
-
 class AutoTaskTrackingMiddleware:
-    """
-    Automatically tracks tasks and subtasks in the PlanManager based on tool execution.
-    """
-    def __init__(self, plan_manager: PlanManager):
+    """Automatically tracks tasks and subtasks in the PlanManager based on tool execution."""
+
+    def __init__(self, plan_manager: PlanManager) -> None:
         self.plan_manager = plan_manager
         # Map tool_call_id to PlanItem.id
         self._current_tool_call_to_plan_item: dict[str, UUID] = {}
 
-    def register_tool_call_for_plan_item(self, tool_call_id: str, plan_item_id: UUID) -> None:
+    def register_tool_call_for_plan_item(
+        self, tool_call_id: str, plan_item_id: UUID
+    ) -> None:
         """Registers an association between a tool call and a plan item."""
         self._current_tool_call_to_plan_item[tool_call_id] = plan_item_id
 
@@ -180,12 +194,18 @@ class AutoTaskTrackingMiddleware:
 
                 if plan_item_id:
                     # Determine status based on tool result
-                    if message.content and VIBE_STOP_EVENT_TAG not in message.content: # Assuming no specific error tag yet
+                    if (
+                        message.content and VIBE_STOP_EVENT_TAG not in message.content
+                    ):  # Assuming no specific error tag yet
                         # If tool result indicates success
-                        self.plan_manager.update_item_status(plan_item_id, ItemStatus.COMPLETED)
+                        self.plan_manager.update_item_status(
+                            plan_item_id, ItemStatus.COMPLETED
+                        )
                     else:
                         # If tool result indicates failure or skipped
-                        self.plan_manager.update_item_status(plan_item_id, ItemStatus.FAILED)
+                        self.plan_manager.update_item_status(
+                            plan_item_id, ItemStatus.FAILED
+                        )
                     # Clear the mapping for this tool call after processing
                     self._current_tool_call_to_plan_item.pop(tool_call_id, None)
 
@@ -265,97 +285,93 @@ class PlanModeMiddleware:
 
 
 class CollaborativeRoutingMiddleware:
+    """Middleware that routes tasks to the collaborative framework.
+
+    Ensures that Devstral offloads appropriate tasks to local models by integrating
+    the CollaborativeRouter into the main agent flow.
     """
-    Middleware that automatically routes tasks to the collaborative framework.
-    
-    This middleware ensures that Devstral consistently offloads appropriate tasks
-    to local models by integrating the CollaborativeRouter into the main agent flow.
-    """
-    
-    def __init__(self, collaborative_integration: CollaborativeVibeIntegration):
+
+    def __init__(self, collaborative_integration: CollaborativeVibeIntegration) -> None:
         self.collaborative_integration = collaborative_integration
         self.current_routing_task_id: str | None = None
         self.current_routing_result: dict[str, Any] | None = None
-    
+
     async def before_turn(self, context: ConversationContext) -> MiddlewareResult:
-        """
-        Check if the current prompt should use collaborative routing.
-        If so, route it through the CollaborativeRouter and inject the result.
-        """
-        if not self.collaborative_integration or not self.collaborative_integration.is_collaborative_mode_enabled():
+        """Check if the current prompt should use collaborative routing."""
+        if (
+            not self.collaborative_integration
+            or not self.collaborative_integration.is_collaborative_mode_enabled()
+        ):
             return MiddlewareResult()
-        
+
         # Get the latest user message
         user_messages = [msg for msg in context.messages if msg.role == "user"]
         if not user_messages:
             return MiddlewareResult()
-        
+
         latest_user_message = user_messages[-1].content
-        
+
         # Check if this prompt should use collaborative routing
-        if not self.collaborative_integration.should_use_collaborative_routing(latest_user_message):
+        if not self.collaborative_integration.should_use_collaborative_routing(
+            latest_user_message
+        ):
             return MiddlewareResult()
-        
+
         # Route the prompt collaboratively with error handling
         try:
-            routing_result = self.collaborative_integration.route_prompt_collaboratively(
-                prompt=latest_user_message,
-                messages=context.messages
+            routing_result = (
+                self.collaborative_integration.route_prompt_collaboratively(
+                    prompt=latest_user_message, messages=context.messages
+                )
             )
         except Exception as e:
             # Handle any unexpected errors in collaborative routing
-            error_message = f"<{VIBE_WARNING_TAG}>Collaborative routing error: {str(e)}. Falling back to Devstral.</{VIBE_WARNING_TAG}>"
-            return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=error_message)
-        
+            error_message = f"<{VIBE_WARNING_TAG}>Collaborative routing error: {e!s}. Falling back to Devstral.</{VIBE_WARNING_TAG}>"
+            return MiddlewareResult(
+                action=MiddlewareAction.INJECT_MESSAGE, message=error_message
+            )
+
         # Store the routing result for potential follow-up
         self.current_routing_task_id = routing_result.get("routing_task_id")
         self.current_routing_result = routing_result
-        
+
         if routing_result.get("use_collaborative", False):
-            if routing_result.get("status") == "system_busy":
-                # System is busy, suggest retry with exponential backoff
-                retry_after = routing_result.get("retry_after", 2.0)
-                message = f"<{VIBE_WARNING_TAG}>Collaborative system is busy. Please wait {retry_after:.1f} seconds and try again.</{VIBE_WARNING_TAG}>"
-                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=message)
-            
-            elif routing_result.get("status") == "failed":
-                # Routing failed, fall back to Devstral with detailed error info
-                error_msg = routing_result.get("message", "Collaborative routing failed")
-                error_type = routing_result.get("error_type", "unknown")
-                
-                # Provide more detailed error information for debugging
-                fallback_message = f"<{VIBE_WARNING_TAG}>Collaborative routing failed ({error_type}): {error_msg}. Falling back to Devstral.</{VIBE_WARNING_TAG}>"
-                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=fallback_message)
-            
-            elif routing_result.get("status") == "partial_success":
-                # Handle partial success cases
-                partial_result = routing_result.get("partial_result", "")
-                model_used = routing_result.get("model_used", "unknown")
-                
-                partial_message = f"<{VIBE_WARNING_TAG}>Partial result from {model_used} via collaborative routing</{VIBE_WARNING_TAG}>\n\n{partial_result}\n\nContinuing with Devstral..."
-                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=partial_message)
-            
-            else:
-                # Successful collaborative routing
-                result_message = routing_result.get("result", "Task completed via collaborative routing")
-                model_used = routing_result.get("model_used", "unknown")
-                
-                # Create a system message showing the collaborative result
-                collaborative_message = f"<{VIBE_WARNING_TAG}>Task completed by {model_used} via collaborative routing</{VIBE_WARNING_TAG}>\n\n{result_message}"
-                
-                return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=collaborative_message)
-        
+            return self._handle_routing_result(routing_result)
+
         return MiddlewareResult()
-    
+
+    def _handle_routing_result(
+        self, routing_result: dict[str, Any]
+    ) -> MiddlewareResult:
+        """Handle the collaborative routing result based on status."""
+        status = routing_result.get("status")
+        model_used = routing_result.get("model_used", "unknown")
+
+        if status == "system_busy":
+            retry_after = routing_result.get("retry_after", 2.0)
+            message = f"<{VIBE_WARNING_TAG}>Collaborative system is busy. Please wait {retry_after:.1f} seconds and try again.</{VIBE_WARNING_TAG}>"
+        elif status == "failed":
+            error_msg = routing_result.get("message", "Collaborative routing failed")
+            error_type = routing_result.get("error_type", "unknown")
+            message = f"<{VIBE_WARNING_TAG}>Collaborative routing failed ({error_type}): {error_msg}. Falling back to Devstral.</{VIBE_WARNING_TAG}>"
+        elif status == "partial_success":
+            partial_result = routing_result.get("partial_result", "")
+            message = f"<{VIBE_WARNING_TAG}>Partial result from {model_used} via collaborative routing</{VIBE_WARNING_TAG}>\n\n{partial_result}\n\nContinuing with Devstral..."
+        else:
+            result_message = routing_result.get(
+                "result", "Task completed via collaborative routing"
+            )
+            message = f"<{VIBE_WARNING_TAG}>Task completed by {model_used} via collaborative routing</{VIBE_WARNING_TAG}>\n\n{result_message}"
+
+        return MiddlewareResult(action=MiddlewareAction.INJECT_MESSAGE, message=message)
+
     async def after_turn(self, context: ConversationContext) -> MiddlewareResult:
-        """
-        Clean up after collaborative routing if needed.
-        """
+        """Clean up after collaborative routing if needed."""
         # Reset routing state after each turn
         self.current_routing_task_id = None
         self.current_routing_result = None
         return MiddlewareResult()
-    
+
     def reset(self, reset_reason: ResetReason = ResetReason.STOP) -> None:
         """Reset middleware state."""
         self.current_routing_task_id = None

@@ -4,7 +4,7 @@ import atexit
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock
-from typing import Any
+from typing import ClassVar
 
 from textual import events
 
@@ -17,9 +17,13 @@ MAX_CACHE_SIZE = 100  # Cache size for common path completions
 
 
 class PathCompletionController:
-    _executor = ThreadPoolExecutor(max_workers=MAX_THREAD_POOL_SIZE, thread_name_prefix="path-completion")
-    _cache: OrderedDict[tuple[str, int], list[tuple[str, str]]] = OrderedDict()
-    _cache_lock = Lock()
+    _executor: ClassVar[ThreadPoolExecutor] = ThreadPoolExecutor(
+        max_workers=MAX_THREAD_POOL_SIZE, thread_name_prefix="path-completion"
+    )
+    _cache: ClassVar[OrderedDict[tuple[str, int], list[tuple[str, str]]]] = (
+        OrderedDict()
+    )
+    _cache_lock: ClassVar[Lock] = Lock()
 
     def __init__(self, completer: PathCompleter, view: CompletionView) -> None:
         self._completer = completer
@@ -68,7 +72,9 @@ class PathCompletionController:
             return cls._cache.get(query)
 
     @classmethod
-    def _add_to_cache(cls, query: tuple[str, int], suggestions: list[tuple[str, str]]) -> None:
+    def _add_to_cache(
+        cls, query: tuple[str, int], suggestions: list[tuple[str, str]]
+    ) -> None:
         """Add completion results to cache, maintaining size limit."""
         with cls._cache_lock:
             cls._cache[query] = suggestions
@@ -88,7 +94,7 @@ class PathCompletionController:
             return
 
         query = (text, cursor_index)
-        
+
         # Check cache first for immediate results
         cached_suggestions = self._get_from_cache(query)
         if cached_suggestions is not None:

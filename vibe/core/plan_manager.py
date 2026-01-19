@@ -1,25 +1,32 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
-import time
 from pathlib import Path
-from typing import Optional, Type, TypeVar, Union
+import time
+from typing import TypeVar
 from uuid import UUID
 
-from vibe.core.planning_models import AgentPlan, Epic, ItemStatus, PlanItem, Subtask, Task
+from vibe.core.planning_models import (
+    AgentPlan,
+    Epic,
+    ItemStatus,
+    PlanItem,
+    Subtask,
+    Task,
+)
 
 T = TypeVar("T", bound=PlanItem)
 
-class PlanManager:
-    """
-    Manages the AgentPlan, including creation, loading, saving, and manipulation of plan items.
-    """
 
-    def __init__(self, project_path: Path):
+class PlanManager:
+    """Manages the AgentPlan, including creation, loading, saving, and manipulation of plan items."""
+
+    def __init__(self, project_path: Path) -> None:
         self.project_path = project_path
         self._plan_file_path = self._get_plan_file_path()
-        self._agent_plan: Optional[AgentPlan] = None
-        self.load_plan() # Attempt to load an existing plan on initialization
+        self._agent_plan: AgentPlan | None = None
+        self.load_plan()  # Attempt to load an existing plan on initialization
 
     def _get_plan_file_path(self) -> Path:
         """Determines the path where the plan JSON will be stored."""
@@ -34,7 +41,7 @@ class PlanManager:
         self.save_plan()
         return self._agent_plan
 
-    def load_plan(self) -> Optional[AgentPlan]:
+    def load_plan(self) -> AgentPlan | None:
         """Loads an existing AgentPlan from file."""
         if not self._plan_file_path.exists():
             self._agent_plan = None
@@ -44,7 +51,7 @@ class PlanManager:
                 plan_data = json.load(f)
             self._agent_plan = AgentPlan.model_validate(plan_data)
             return self._agent_plan
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
+        except (OSError, json.JSONDecodeError, FileNotFoundError):
             self._agent_plan = None
             return None
 
@@ -56,23 +63,27 @@ class PlanManager:
                 json.dump(self._agent_plan.model_dump(mode="json"), f, indent=4)
 
     @property
-    def current_plan(self) -> Optional[AgentPlan]:
+    def current_plan(self) -> AgentPlan | None:
         return self._agent_plan
 
-    def _find_item_recursive(self, item_id: UUID, items: list[PlanItem]) -> Optional[PlanItem]:
+    def _find_item_recursive(
+        self, item_id: UUID, items: list[PlanItem]
+    ) -> PlanItem | None:
         """Helper to recursively find an item by ID within a list of PlanItems."""
         for item in items:
             if item.id == item_id:
                 return item
             if isinstance(item, Epic):
                 found = self._find_item_recursive(item_id, item.tasks)
-                if found: return found
+                if found:
+                    return found
             if isinstance(item, Task):
                 found = self._find_item_recursive(item_id, item.subtasks)
-                if found: return found
+                if found:
+                    return found
         return None
 
-    def get_item_by_id(self, item_id: UUID) -> Optional[PlanItem]:
+    def get_item_by_id(self, item_id: UUID) -> PlanItem | None:
         """Finds any plan item (Epic, Task, or Subtask) by its ID."""
         if not self._agent_plan:
             return None
@@ -96,7 +107,7 @@ class PlanManager:
             return
 
         # Find the parent of the child_id
-        parent_item: Optional[PlanItem] = None
+        parent_item: PlanItem | None = None
         for epic in self._agent_plan.epics:
             if child_id in [t.id for t in epic.tasks]:
                 parent_item = epic
@@ -105,14 +116,20 @@ class PlanManager:
                 if child_id in [s.id for s in task.subtasks]:
                     parent_item = task
                     break
-            if parent_item: break
+            if parent_item:
+                break
 
         if parent_item:
             children_are_completed = False
             if isinstance(parent_item, Epic):
-                children_are_completed = all(task.status == ItemStatus.COMPLETED for task in parent_item.tasks)
+                children_are_completed = all(
+                    task.status == ItemStatus.COMPLETED for task in parent_item.tasks
+                )
             elif isinstance(parent_item, Task):
-                children_are_completed = all(subtask.status == ItemStatus.COMPLETED for subtask in parent_item.subtasks)
+                children_are_completed = all(
+                    subtask.status == ItemStatus.COMPLETED
+                    for subtask in parent_item.subtasks
+                )
 
             if children_are_completed and parent_item.status != ItemStatus.COMPLETED:
                 parent_item.status = ItemStatus.COMPLETED
@@ -121,51 +138,74 @@ class PlanManager:
                 # Recursively check if this completion affects its parent
                 self._update_parent_status(parent_item.id)
 
-    def get_next_actionable_item(self) -> Optional[Union[Task, Subtask]]:
-        """
-        Finds the next actionable item (Task or Subtask) that is PENDING
-        and has all its dependencies COMPLETED. Prioritizes subtasks, then tasks.
+    def get_next_actionable_item(self) -> Task | Subtask | None:
+        """Finds the next actionable item (Task or Subtask).
+
+        Finds an item that is PENDING and has all its dependencies COMPLETED.
+        Prioritizes subtasks, then tasks.
         """
         if not self._agent_plan:
             return None
 
         # A cache for dependency status to avoid repeated lookups
-        dependency_status_cache = {}
+        dependency_status_cache: dict[UUID, bool] = {}
 
         def is_dependency_completed(dep_id: UUID) -> bool:
             if dep_id not in dependency_status_cache:
                 dep_item = self.get_item_by_id(dep_id)
-                dependency_status_cache[dep_id] = (dep_item is not None and dep_item.status == ItemStatus.COMPLETED)
+                dependency_status_cache[dep_id] = (
+                    dep_item is not None and dep_item.status == ItemStatus.COMPLETED
+                )
             return dependency_status_cache[dep_id]
 
         for epic in self._agent_plan.epics:
-            if epic.status != ItemStatus.PENDING and epic.status != ItemStatus.IN_PROGRESS:
-                continue # Skip epics that are not pending or in progress
+            if epic.status not in {ItemStatus.PENDING, ItemStatus.IN_PROGRESS}:
+                continue
 
             for task in epic.tasks:
-                if task.status != ItemStatus.PENDING and task.status != ItemStatus.IN_PROGRESS:
-                    continue # Skip tasks that are not pending or in progress
+                if task.status not in {ItemStatus.PENDING, ItemStatus.IN_PROGRESS}:
+                    continue
 
-                # Check subtasks first
-                for subtask in task.subtasks:
-                    if subtask.status == ItemStatus.PENDING:
-                        if all(is_dependency_completed(dep) for dep in subtask.dependencies):
-                            return subtask
+                if subtask := self._find_actionable_subtask(
+                    task, is_dependency_completed
+                ):
+                    return subtask
 
-                # If no actionable subtask, check the task itself if it has no subtasks
-                # or if it has subtasks but they are all completed/skipped/failed.
-                if task.status == ItemStatus.PENDING:
-                    # If task has subtasks, it's only actionable if all subtasks are non-pending/in_progress
-                    if task.subtasks:
-                        all_subtasks_handled = all(s.status not in [ItemStatus.PENDING, ItemStatus.IN_PROGRESS] for s in task.subtasks)
-                        if all_subtasks_handled and all(is_dependency_completed(dep) for dep in task.dependencies):
-                            return task
-                    else: # Task has no subtasks, check its dependencies directly
-                         if all(is_dependency_completed(dep) for dep in task.dependencies):
-                            return task
+                if self._can_execute_task(task, is_dependency_completed):
+                    return task
         return None
 
-    def add_epic(self, name: str, description: Optional[str] = None, dependencies: Optional[list[UUID]] = None) -> Optional[Epic]:
+    def _find_actionable_subtask(
+        self, task: Task, dep_check_fn: Callable[[UUID], bool]
+    ) -> Subtask | None:
+        for subtask in task.subtasks:
+            if subtask.status == ItemStatus.PENDING:
+                if all(dep_check_fn(dep) for dep in subtask.dependencies):
+                    return subtask
+        return None
+
+    def _can_execute_task(
+        self, task: Task, dep_check_fn: Callable[[UUID], bool]
+    ) -> bool:
+        if task.status != ItemStatus.PENDING:
+            return False
+
+        if task.subtasks:
+            all_subtasks_handled = all(
+                s.status not in {ItemStatus.PENDING, ItemStatus.IN_PROGRESS}
+                for s in task.subtasks
+            )
+            if not all_subtasks_handled:
+                return False
+
+        return all(dep_check_fn(dep) for dep in task.dependencies)
+
+    def add_epic(
+        self,
+        name: str,
+        description: str | None = None,
+        dependencies: list[UUID] | None = None,
+    ) -> Epic | None:
         """Adds a new epic to the plan."""
         if not self._agent_plan:
             return None
@@ -174,21 +214,43 @@ class PlanManager:
         self.save_plan()
         return epic
 
-    def add_task_to_epic(self, epic_id: UUID, name: str, description: Optional[str] = None, dependencies: Optional[list[UUID]] = None, effort_estimate: Optional[str] = None, priority: Optional[int] = None) -> Optional[Task]:
+    def add_task_to_epic(
+        self,
+        epic_id: UUID,
+        name: str,
+        description: str | None = None,
+        dependencies: list[UUID] | None = None,
+        effort_estimate: str | None = None,
+        priority: int | None = None,
+    ) -> Task | None:
         """Adds a new task to a specific epic."""
         epic = self.get_item_by_id(epic_id)
         if isinstance(epic, Epic):
-            task = Task(name=name, description=description, dependencies=dependencies or [], effort_estimate=effort_estimate, priority=priority)
+            task = Task(
+                name=name,
+                description=description,
+                dependencies=dependencies or [],
+                effort_estimate=effort_estimate,
+                priority=priority,
+            )
             epic.tasks.append(task)
             self.save_plan()
             return task
         return None
 
-    def add_subtask_to_task(self, task_id: UUID, name: str, description: Optional[str] = None, dependencies: Optional[list[UUID]] = None) -> Optional[Subtask]:
+    def add_subtask_to_task(
+        self,
+        task_id: UUID,
+        name: str,
+        description: str | None = None,
+        dependencies: list[UUID] | None = None,
+    ) -> Subtask | None:
         """Adds a new subtask to a specific task."""
         task = self.get_item_by_id(task_id)
         if isinstance(task, Task):
-            subtask = Subtask(name=name, description=description, dependencies=dependencies or [])
+            subtask = Subtask(
+                name=name, description=description, dependencies=dependencies or []
+            )
             task.subtasks.append(subtask)
             self.save_plan()
             return subtask

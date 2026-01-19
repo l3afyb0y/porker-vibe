@@ -9,11 +9,10 @@ import subprocess
 import sys
 import time
 from typing import TYPE_CHECKING
-from vibe.core.plan_manager import PlanManager
-from vibe.core.planning_models import ItemStatus
 
 from vibe.core.llm.format import get_active_tool_classes
 from vibe.core.paths.config_paths import INSTRUCTIONS_FILE
+from vibe.core.plan_manager import PlanManager
 from vibe.core.prompts import UtilityPrompt
 from vibe.core.trusted_folders import TRUSTABLE_FILENAMES, trusted_folders_manager
 from vibe.core.utils import is_dangerous_directory, is_windows
@@ -381,18 +380,12 @@ def _add_commit_signature() -> str:
     )
 
 
-
 def _get_plan_context(plan_manager: PlanManager) -> str:
     if not plan_manager.current_plan:
         return ""
 
     plan = plan_manager.current_plan
-    lines = [
-        "## Current Agent Plan",
-        "",
-        f"**Overall Goal:** {plan.overall_goal}",
-        ""
-    ]
+    lines = ["## Current Agent Plan", "", f"**Overall Goal:** {plan.overall_goal}", ""]
 
     if plan.epics:
         lines.append("**Epics:**")
@@ -401,7 +394,7 @@ def _get_plan_context(plan_manager: PlanManager) -> str:
 
     next_item = plan_manager.get_next_actionable_item()
     if next_item:
-        lines.append(f"\n**Next Actionable Item:**")
+        lines.append("\n**Next Actionable Item:**")
         lines.append(f"- **{next_item.name}** (ID: {next_item.id})")
         lines.append(f"  Status: {next_item.status.value}")
         if next_item.description:
@@ -411,7 +404,9 @@ def _get_plan_context(plan_manager: PlanManager) -> str:
         if next_item.expected_output:
             lines.append(f"  Expected Output: {next_item.expected_output}")
     else:
-        lines.append("\nNo immediate actionable items in the plan. Waiting for next instruction or plan update.")
+        lines.append(
+            "\nNo immediate actionable items in the plan. Waiting for next instruction or plan update."
+        )
 
     return "\n".join(lines)
 
@@ -447,30 +442,19 @@ def _get_available_skills_section(skill_manager: SkillManager | None) -> str:
     return "\n".join(lines)
 
 
-def _get_todo_context(todo_manager: TodoManager) -> str:
-    todos = todo_manager.get_todos_in_order()
-    if not todos:
-        return ""
-
-    lines = ["## Current Todos", ""]
-    for todo in todos:
-        from vibe.core.todo_manager import TodoStatus
-        icon = "✓" if todo.status == TodoStatus.COMPLETED else "▶" if todo.status == TodoStatus.IN_PROGRESS else "○"
-        lines.append(f"- {icon} {todo.content}")
-    return "\n".join(lines)
-
-
 def get_universal_system_prompt(
     tool_manager: ToolManager,
     config: VibeConfig,
     plan_manager: PlanManager,
-    todo_manager: TodoManager | None = None,
     skill_manager: SkillManager | None = None,
 ) -> str:
     sections = [config.system_prompt]
 
     # Add collaborative mode context silently (not shown in UI)
-    if hasattr(config, 'collaborative_prompt_addition') and config.collaborative_prompt_addition:
+    if (
+        hasattr(config, "collaborative_prompt_addition")
+        and config.collaborative_prompt_addition
+    ):
         sections.append(config.collaborative_prompt_addition)
 
     if config.include_commit_signature:
@@ -488,11 +472,6 @@ def get_universal_system_prompt(
                 tool_prompts.append(prompt)
         if tool_prompts:
             sections.append("\n---\n".join(tool_prompts))
-
-        if todo_manager:
-            todo_context = _get_todo_context(todo_manager)
-            if todo_context:
-                sections.append(todo_context)
 
         user_instructions = config.instructions.strip() or _load_user_instructions()
         if user_instructions.strip():

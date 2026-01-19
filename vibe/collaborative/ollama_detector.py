@@ -1,5 +1,4 @@
-"""
-Ollama Detection and Configuration for Collaborative Mode
+"""Ollama Detection and Configuration for Collaborative Mode.
 
 This module handles automatic detection of Ollama availability
 and configuration based on environment variables.
@@ -11,28 +10,32 @@ Supports multiple specialized models:
 - VIBE_LOCAL_MODEL: Fallback for all tasks if specific models not set
 """
 
-import os
-import requests
-from typing import Optional, Tuple, Dict
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum, auto
+import os
+
+import requests
 
 
 class ModelRole(StrEnum):
     """Specialized model roles for different task types."""
+
     PLANNING = auto()  # Planning and coordination (normally Devstral)
-    CODE = auto()      # Code implementation
-    REVIEW = auto()    # Code review
-    DOCS = auto()      # Documentation and git
+    CODE = auto()  # Code implementation
+    REVIEW = auto()  # Code review
+    DOCS = auto()  # Documentation and git
 
 
 @dataclass
 class OllamaStatus:
     """Status information about Ollama availability."""
+
     available: bool
     endpoint: str
-    local_model: Optional[str]
-    error_message: Optional[str] = None
+    local_model: str | None
+    error_message: str | None = None
 
 
 DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434"
@@ -48,9 +51,9 @@ DEFAULT_MODELS = {
 }
 
 
-def get_local_model_from_env() -> Optional[str]:
-    """
-    Get the local model name from VIBE_LOCAL_MODEL environment variable.
+def get_local_model_from_env() -> str | None:
+    """Get the local model name from VIBE_LOCAL_MODEL environment variable.
+
     This is the fallback if specific role models aren't set.
 
     Returns:
@@ -59,9 +62,8 @@ def get_local_model_from_env() -> Optional[str]:
     return os.environ.get("VIBE_LOCAL_MODEL")
 
 
-def get_model_for_role(role: ModelRole) -> Optional[str]:
-    """
-    Get the configured model for a specific role.
+def get_model_for_role(role: ModelRole) -> str | None:
+    """Get the configured model for a specific role.
 
     Checks environment variables in this order:
     1. VIBE_{ROLE}_MODEL (e.g., VIBE_CODE_MODEL)
@@ -84,9 +86,8 @@ def get_model_for_role(role: ModelRole) -> Optional[str]:
     return get_local_model_from_env()
 
 
-def get_all_configured_models() -> Dict[ModelRole, Optional[str]]:
-    """
-    Get all configured models for each role.
+def get_all_configured_models() -> dict[ModelRole, str | None]:
+    """Get all configured models for each role.
 
     Returns:
         Dictionary mapping roles to their configured models
@@ -99,9 +100,8 @@ def get_all_configured_models() -> Dict[ModelRole, Optional[str]]:
     }
 
 
-def get_planning_model() -> Optional[str]:
-    """
-    Get the planning model from VIBE_PLANNING_MODEL environment variable.
+def get_planning_model() -> str | None:
+    """Get the planning model from VIBE_PLANNING_MODEL environment variable.
 
     Returns None if not set, which means use Devstral via Mistral API (default).
     Does NOT fall back to VIBE_LOCAL_MODEL.
@@ -113,8 +113,7 @@ def get_planning_model() -> Optional[str]:
 
 
 def is_fully_local_mode() -> bool:
-    """
-    Check if running in fully local mode (no Mistral API needed).
+    """Check if running in fully local mode (no Mistral API needed).
 
     Returns:
         True if VIBE_PLANNING_MODEL is set (all models via Ollama)
@@ -123,8 +122,7 @@ def is_fully_local_mode() -> bool:
 
 
 def get_ollama_endpoint() -> str:
-    """
-    Get the Ollama endpoint, allowing override via environment variable.
+    """Get the Ollama endpoint, allowing override via environment variable.
 
     Returns:
         The Ollama API endpoint URL.
@@ -133,8 +131,7 @@ def get_ollama_endpoint() -> str:
 
 
 def check_ollama_availability(timeout: float = 2.0) -> OllamaStatus:
-    """
-    Check if Ollama is running and available.
+    """Check if Ollama is running and available.
 
     Args:
         timeout: Request timeout in seconds.
@@ -147,20 +144,20 @@ def check_ollama_availability(timeout: float = 2.0) -> OllamaStatus:
 
     try:
         # Try to hit the Ollama API tags endpoint to check if it's running
-        response = requests.get(
-            f"{endpoint}{OLLAMA_API_TAGS}",
-            timeout=timeout
-        )
+        response = requests.get(f"{endpoint}{OLLAMA_API_TAGS}", timeout=timeout)
         response.raise_for_status()
 
         # Ollama is running - check if the requested model is available
         if local_model:
             models_data = response.json()
-            available_models = [m.get("name", "") for m in models_data.get("models", [])]
+            available_models = [
+                m.get("name", "") for m in models_data.get("models", [])
+            ]
 
             # Check if the model is available (with or without tag)
             model_found = any(
-                local_model.lower() in m.lower() or m.lower().startswith(local_model.lower().split(":")[0])
+                local_model.lower() in m.lower()
+                or m.lower().startswith(local_model.lower().split(":")[0])
                 for m in available_models
             )
 
@@ -169,41 +166,36 @@ def check_ollama_availability(timeout: float = 2.0) -> OllamaStatus:
                     available=True,
                     endpoint=endpoint,
                     local_model=local_model,
-                    error_message=f"Model '{local_model}' not found. Available: {', '.join(available_models[:5])}"
+                    error_message=f"Model '{local_model}' not found. Available: {', '.join(available_models[:5])}",
                 )
 
-        return OllamaStatus(
-            available=True,
-            endpoint=endpoint,
-            local_model=local_model
-        )
+        return OllamaStatus(available=True, endpoint=endpoint, local_model=local_model)
 
     except requests.exceptions.ConnectionError:
         return OllamaStatus(
             available=False,
             endpoint=endpoint,
             local_model=local_model,
-            error_message="Ollama is not running. Start with 'ollama serve'"
+            error_message="Ollama is not running. Start with 'ollama serve'",
         )
     except requests.exceptions.Timeout:
         return OllamaStatus(
             available=False,
             endpoint=endpoint,
             local_model=local_model,
-            error_message="Ollama connection timed out"
+            error_message="Ollama connection timed out",
         )
     except requests.exceptions.RequestException as e:
         return OllamaStatus(
             available=False,
             endpoint=endpoint,
             local_model=local_model,
-            error_message=f"Ollama connection error: {str(e)}"
+            error_message=f"Ollama connection error: {e!s}",
         )
 
 
-def should_enable_collaborative_mode() -> Tuple[bool, Optional[str]]:
-    """
-    Determine if collaborative mode should be auto-enabled.
+def should_enable_collaborative_mode() -> tuple[bool, str | None]:
+    """Determine if collaborative mode should be auto-enabled.
 
     Collaborative mode is auto-enabled when:
     1. Any VIBE model env var is set (VIBE_LOCAL_MODEL, VIBE_CODE_MODEL, etc.), AND
@@ -230,7 +222,10 @@ def should_enable_collaborative_mode() -> Tuple[bool, Optional[str]]:
             return True, f"Local model '{model_name}' detected via Ollama"
         else:
             # Multi-model mode
-            return True, f"Multi-model collaboration enabled ({model_count} models configured)"
+            return (
+                True,
+                f"Multi-model collaboration enabled ({model_count} models configured)",
+            )
     else:
         return False, status.error_message
 
